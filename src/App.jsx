@@ -38,6 +38,7 @@ const AshPay = () => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [isSavingPayment, setIsSavingPayment] = useState(false);
+  const [tawkLoaded, setTawkLoaded] = useState(false);
 
   const walletAddresses = {
     BSC: '0xc78d59e82feaf166b469a5e62d82114c1e1d3727',
@@ -167,6 +168,37 @@ const AshPay = () => {
       setReferralCode(`ASH${currentUser.id}`);
     }
   }, [currentUser]);
+
+  // Load Tawk.to chat with file upload enabled
+  useEffect(() => {
+    if (!tawkLoaded) {
+      var Tawk_API = Tawk_API || {};
+      var Tawk_LoadStart = new Date();
+      
+      (function(){
+        var s1 = document.createElement("script");
+        var s0 = document.getElementsByTagName("script")[0];
+        s1.async = true;
+        s1.src = 'https://embed.tawk.to/68e9e2d6ca0084195466fbe0/1j78ps654';
+        s1.charset = 'UTF-8';
+        s1.setAttribute('crossorigin','*');
+        
+        // Enable file uploads
+        s1.onload = function() {
+          if (window.Tawk_API) {
+            window.Tawk_API.onLoad = function() {
+              // File upload is automatically enabled in Tawk.to
+              console.log('Tawk.to chat loaded with file upload support');
+            };
+          }
+        };
+        
+        s0.parentNode.insertBefore(s1, s0);
+      })();
+      
+      setTawkLoaded(true);
+    }
+  }, [tawkLoaded]);
 
   useEffect(() => {
     const generateActivity = () => {
@@ -757,7 +789,22 @@ const AshPay = () => {
   };
 
   const openTelegram = () => {
-    window.open('https://t.me/Ashpay_Support', '_blank');
+    // Try to open in Telegram app first, fallback to web
+    const telegramUrl = 'tg://resolve?domain=Ashpay_Support';
+    const webUrl = 'https://t.me/Ashpay_Support';
+    
+    // Create a hidden link and click it
+    const link = document.createElement('a');
+    link.href = telegramUrl;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // Fallback to web after short delay if app doesn't open
+    setTimeout(() => {
+      window.open(webUrl, '_blank');
+    }, 1000);
   };
 
   const openTab = (tabName) => {
@@ -1618,15 +1665,19 @@ const AshPay = () => {
             <p className="text-gray-300 mb-6">Choose your preferred way to contact us</p>
             
             <div className="space-y-3">
-              <a
-                href="https://tawk.to/chat/68e9e2d6ca0084195466fbe0/1j78ps654"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={() => {
+                  setShowSupport(false);
+                  // Open Tawk chat
+                  if (window.Tawk_API && window.Tawk_API.maximize) {
+                    window.Tawk_API.maximize();
+                  }
+                }}
                 className="inline-flex items-center justify-center gap-3 w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-4 rounded-xl font-semibold hover:shadow-lg transition-shadow"
               >
                 <MessageCircle className="w-6 h-6" />
                 Live Chat Support
-              </a>
+              </button>
               
               <button
                 onClick={openTelegram}
