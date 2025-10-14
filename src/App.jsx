@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, History, LogOut, ArrowDownCircle, Copy, Check, Clock, Settings, Building2, CreditCard, TrendingUp, Zap, Shield, User, X, MessageCircle } from 'lucide-react';
+import { Wallet, History, LogOut, ArrowDownCircle, Copy, Check, Clock, CreditCard, TrendingUp, Zap, Shield, User, X, MessageCircle, Loader2 } from 'lucide-react';
 
 const AshPay = () => {
   const [currentUser, setCurrentUser] = useState(null);
@@ -35,11 +35,114 @@ const AshPay = () => {
   const [showDeletePaymentConfirm, setShowDeletePaymentConfirm] = useState(false);
   const [paymentToDelete, setPaymentToDelete] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
 
   const walletAddresses = {
     BSC: '0xc78d59e82feaf166b469a5e62d82114c1e1d3727',
     Polygon: '0xc78d59e82feaf166b469a5e62d82114c1e1d3727'
   };
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem('ashpay_user');
+    if (savedUser) {
+      try {
+        const user = JSON.parse(savedUser);
+        setCurrentUser(user);
+        setShowAuth(false);
+        console.log('User session restored');
+      } catch (error) {
+        console.error('Error restoring session:', error);
+        localStorage.removeItem('ashpay_user');
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('ashpay_user', JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem('ashpay_user');
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    const handleBackButton = (e) => {
+      // Prevent default back behavior
+      e.preventDefault();
+      
+      // Close modals first (highest priority)
+      if (showThankYou) {
+        setShowThankYou(false);
+        window.history.pushState(null, '', window.location.href);
+        return;
+      }
+      if (showToolsThankYou) {
+        setShowToolsThankYou(false);
+        window.history.pushState(null, '', window.location.href);
+        return;
+      }
+      if (showDeletePaymentConfirm) {
+        setShowDeletePaymentConfirm(false);
+        window.history.pushState(null, '', window.location.href);
+        return;
+      }
+      if (showLogoutConfirm) {
+        setShowLogoutConfirm(false);
+        window.history.pushState(null, '', window.location.href);
+        return;
+      }
+      
+      // Close overlay screens
+      if (showDeposit) {
+        setShowDeposit(false);
+        window.history.pushState(null, '', window.location.href);
+        return;
+      }
+      if (showHistory) {
+        setShowHistory(false);
+        window.history.pushState(null, '', window.location.href);
+        return;
+      }
+      if (showSupport) {
+        setShowSupport(false);
+        window.history.pushState(null, '', window.location.href);
+        return;
+      }
+      
+      // Handle tab navigation - if not on wallet tab, go back to wallet
+      if (activeTab !== 'wallet') {
+        setShowTools(false);
+        setShowProfile(false);
+        setShowTeam(false);
+        setShowWallet(true);
+        setActiveTab('wallet');
+        window.history.pushState(null, '', window.location.href);
+        return;
+      }
+      
+      // If on wallet tab and logged in, minimize app (don't logout)
+      if (currentUser && !showAuth && activeTab === 'wallet') {
+        // On Android PWA, this will minimize the app
+        // On browser, this will close the tab (browser will ask for confirmation)
+        if (window.confirm('Do you want to exit the app?')) {
+          window.close();
+        }
+        window.history.pushState(null, '', window.location.href);
+        return;
+      }
+    };
+
+    // Listen for back button
+    window.addEventListener('popstate', handleBackButton);
+    
+    // Push initial state to prevent immediate back
+    window.history.pushState(null, '', window.location.href);
+    
+    return () => {
+      window.removeEventListener('popstate', handleBackButton);
+    };
+  }, [showDeposit, showHistory, showTools, showProfile, showTeam, showWallet, showSupport, showThankYou, showToolsThankYou, showLogoutConfirm, showDeletePaymentConfirm, currentUser, showAuth, activeTab]);
 
   const generateCustomerId = () => {
     return Math.floor(100000 + Math.random() * 900000).toString();
@@ -105,20 +208,27 @@ const AshPay = () => {
   const handleRegister = async (e) => {
     e.preventDefault();
     
+    console.log('Register button clicked!');
+    console.log('Form data:', formData);
+    
     const mobileError = validateMobile(formData.mobile);
     const passwordError = validatePassword(formData.password);
+    
+    console.log('Validation errors:', { mobileError, passwordError });
     
     setFormErrors({ mobile: mobileError, password: passwordError });
     
     if (mobileError || passwordError || !formData.name) {
       if (!formData.name) alert('Please enter your name');
+      console.log('Validation failed, stopping');
       return;
     }
     
+    console.log('Starting registration...');
+    setIsRegistering(true);
+    
     try {
-      console.log('Sending registration request...');
-      console.log('Data:', { name: formData.name, mobile: formData.mobile });
-      
+      console.log('Sending request to backend...');
       const response = await fetch('https://ashpay-backend.onrender.com/api/register', {
         method: 'POST',
         headers: {
@@ -132,7 +242,7 @@ const AshPay = () => {
         })
       });
 
-      console.log('Response status:', response.status);
+      console.log('Response received:', response.status);
       const data = await response.json();
       console.log('Response data:', data);
 
@@ -142,6 +252,7 @@ const AshPay = () => {
         } else {
           alert(data.error || 'Registration failed');
         }
+        setIsRegistering(false);
         return;
       }
 
@@ -151,11 +262,16 @@ const AshPay = () => {
       setShowAuth(false);
       setFormData({ mobile: '', password: '', name: '', referralCode: '' });
       setFormErrors({ mobile: '', password: '' });
-      alert('Registration successful! Your ID: ' + data.user.id);
+      setIsRegistering(false);
       
     } catch (error) {
       console.error('Registration error:', error);
-      alert('Registration failed: ' + error.message);
+      if (error.message.includes('Failed to fetch')) {
+        alert('Server is waking up, please wait 30 seconds and try again');
+      } else {
+        alert('Registration failed: ' + error.message);
+      }
+      setIsRegistering(false);
     }
   };
 
@@ -171,9 +287,9 @@ const AshPay = () => {
       return;
     }
     
+    setIsLoggingIn(true);
+    
     try {
-      console.log('Sending login request...');
-      
       const response = await fetch('https://ashpay-backend.onrender.com/api/login', {
         method: 'POST',
         headers: {
@@ -185,9 +301,7 @@ const AshPay = () => {
         })
       });
 
-      console.log('Response status:', response.status);
       const data = await response.json();
-      console.log('Response data:', data);
 
       if (!response.ok) {
         if (data.error === 'Invalid password') {
@@ -197,23 +311,29 @@ const AshPay = () => {
         } else {
           alert(data.error || 'Login failed');
         }
+        setIsLoggingIn(false);
         return;
       }
 
-      console.log('Login successful!');
       setCurrentUser(data.user);
       setPendingDeposits([]);
       setShowAuth(false);
       setFormData({ mobile: '', password: '', name: '', referralCode: '' });
       setFormErrors({ mobile: '', password: '' });
+      setIsLoggingIn(false);
       
     } catch (error) {
       console.error('Login error:', error);
-      alert('Login failed: ' + error.message);
+      if (error.message.includes('Failed to fetch')) {
+        alert('Server is waking up, please wait 30 seconds and try again');
+      } else {
+        alert('Login failed: ' + error.message);
+      }
+      setIsLoggingIn(false);
     }
   };
 
-  const handlePasswordChange = () => {
+  const handlePasswordChange = async () => {
     setPasswordError('');
     
     if (!passwordChange.current || !passwordChange.new || !passwordChange.confirm) {
@@ -236,13 +356,36 @@ const AshPay = () => {
       return;
     }
     
-    const updatedUser = { ...currentUser, password: passwordChange.new };
-    const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
-    setUsers(updatedUsers);
-    setCurrentUser(updatedUser);
-    setPasswordChange({ current: '', new: '', confirm: '' });
-    setShowProfile(false);
-    alert('Password changed successfully!');
+    try {
+      const response = await fetch('https://ashpay-backend.onrender.com/api/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          currentPassword: passwordChange.current,
+          newPassword: passwordChange.new
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        const updatedUser = { ...currentUser, password: passwordChange.new };
+        const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
+        setUsers(updatedUsers);
+        setCurrentUser(updatedUser);
+        setPasswordChange({ current: '', new: '', confirm: '' });
+        setShowProfile(false);
+        alert('Password changed successfully!');
+      } else {
+        setPasswordError(data.error || 'Failed to change password');
+      }
+    } catch (error) {
+      console.error('Error changing password:', error);
+      setPasswordError('Failed to change password');
+    }
   };
 
   const handleDeposit = () => {
@@ -277,7 +420,6 @@ const AshPay = () => {
     const errors = { accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' };
     let isValid = true;
 
-    // Account Name - only alphabets and spaces
     if (!bankDetails.accountName) {
       errors.accountName = 'Account name is required';
       isValid = false;
@@ -286,7 +428,6 @@ const AshPay = () => {
       isValid = false;
     }
 
-    // Account Number - only numbers
     if (!bankDetails.accountNumber) {
       errors.accountNumber = 'Account number is required';
       isValid = false;
@@ -298,7 +439,6 @@ const AshPay = () => {
       isValid = false;
     }
 
-    // IFSC Code
     if (!bankDetails.ifsc) {
       errors.ifsc = 'IFSC code is required';
       isValid = false;
@@ -307,7 +447,6 @@ const AshPay = () => {
       isValid = false;
     }
 
-    // Bank Name - only alphabets and spaces
     if (!bankDetails.bankName) {
       errors.bankName = 'Bank name is required';
       isValid = false;
@@ -324,7 +463,6 @@ const AshPay = () => {
     const errors = { accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' };
     let isValid = true;
 
-    // UPI format: abcd@xyz
     if (!upiId) {
       errors.upiId = 'UPI ID is required';
       isValid = false;
@@ -337,7 +475,7 @@ const AshPay = () => {
     return isValid;
   };
 
-  const savePaymentDetails = () => {
+  const savePaymentDetails = async () => {
     const savedPaymentDetails = currentUser.paymentDetails || [];
     
     if (savedPaymentDetails.length >= 6) {
@@ -351,37 +489,94 @@ const AshPay = () => {
       }
       const details = { id: Date.now(), type: 'bank', ...bankDetails };
       const updatedDetails = [...savedPaymentDetails, details];
-      const updatedUser = { ...currentUser, paymentDetails: updatedDetails };
-      const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
-      setUsers(updatedUsers);
-      setCurrentUser(updatedUser);
-      setBankDetails({ accountName: '', accountNumber: '', ifsc: '', bankName: '' });
-      setPaymentErrors({ accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' });
-      setShowToolsThankYou(true);
+      
+      try {
+        const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            paymentDetails: updatedDetails
+          })
+        });
+
+        const data = await response.json();
+        
+        if (response.ok) {
+          setCurrentUser(data.user);
+          const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
+          setUsers(updatedUsers);
+          setBankDetails({ accountName: '', accountNumber: '', ifsc: '', bankName: '' });
+          setPaymentErrors({ accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' });
+          setShowToolsThankYou(true);
+        }
+      } catch (error) {
+        console.error('Error saving payment details:', error);
+        alert('Failed to save payment details');
+      }
     } else {
       if (!validateUPI()) {
         return;
       }
       const details = { id: Date.now(), type: 'upi', upiId };
       const updatedDetails = [...savedPaymentDetails, details];
-      const updatedUser = { ...currentUser, paymentDetails: updatedDetails };
-      const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
-      setUsers(updatedUsers);
-      setCurrentUser(updatedUser);
-      setUpiId('');
-      setPaymentErrors({ accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' });
-      setShowToolsThankYou(true);
+      
+      try {
+        const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            paymentDetails: updatedDetails
+          })
+        });
+
+        const data = await response.json();
+        
+        if (response.ok) {
+          setCurrentUser(data.user);
+          const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
+          setUsers(updatedUsers);
+          setUpiId('');
+          setPaymentErrors({ accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' });
+          setShowToolsThankYou(true);
+        }
+      } catch (error) {
+        console.error('Error saving payment details:', error);
+        alert('Failed to save payment details');
+      }
     }
   };
 
-  const removePaymentDetails = (id) => {
+  const removePaymentDetails = async (id) => {
     const updatedDetails = (currentUser.paymentDetails || []).filter(detail => detail.id !== id);
-    const updatedUser = { ...currentUser, paymentDetails: updatedDetails };
-    const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
-    setUsers(updatedUsers);
-    setCurrentUser(updatedUser);
-    setShowDeletePaymentConfirm(false);
-    setPaymentToDelete(null);
+    
+    try {
+      const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          paymentDetails: updatedDetails
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setCurrentUser(data.user);
+        const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
+        setUsers(updatedUsers);
+        setShowDeletePaymentConfirm(false);
+        setPaymentToDelete(null);
+      }
+    } catch (error) {
+      console.error('Error deleting payment method:', error);
+      alert('Failed to delete payment method');
+    }
   };
 
   const confirmDeletePayment = (id) => {
@@ -389,7 +584,7 @@ const AshPay = () => {
     setShowDeletePaymentConfirm(true);
   };
 
-  const completePendingDeposit = (depositId) => {
+  const completePendingDeposit = async (depositId) => {
     const deposit = pendingDeposits.find(d => d.id === depositId);
     if (!deposit) return;
 
@@ -399,42 +594,52 @@ const AshPay = () => {
       date: new Date().toISOString()
     };
 
-    const updatedUser = {
-      ...currentUser,
-      balance: currentUser.balance + deposit.inrAmount,
-      transactions: [completedTransaction, ...currentUser.transactions]
-    };
+    const newBalance = currentUser.balance + deposit.inrAmount;
+    const updatedTransactions = [completedTransaction, ...currentUser.transactions];
 
-    const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
-    setUsers(updatedUsers);
-    setCurrentUser(updatedUser);
-    setPendingDeposits(prev => prev.filter(d => d.id !== depositId));
+    try {
+      const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          balance: newBalance,
+          transactions: updatedTransactions
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setCurrentUser(data.user);
+        const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
+        setUsers(updatedUsers);
+        setPendingDeposits(prev => prev.filter(d => d.id !== depositId));
+      }
+    } catch (error) {
+      console.error('Error completing deposit:', error);
+      alert('Failed to complete deposit');
+    }
   };
 
-  // Function to fetch balance from backend
   const fetchBalanceFromBackend = async (userId) => {
     try {
       setIsRefreshing(true);
-      console.log('Fetching balance for userId:', userId);
       
-      // Using CORS proxy temporarily
-      const response = await fetch(`https://ashpay-api.onrender.com/api/balance/${userId}`, {
+      const response = await fetch(`https://ashpay-backend.onrender.com/api/balance/${userId}`, {
         mode: 'cors',
         headers: {
           'Content-Type': 'application/json'
         }
       });
-
-      console.log('Response status:', response.status);
       
       if (!response.ok) {
         throw new Error('Failed to fetch balance');
       }
 
       const data = await response.json();
-      console.log('Balance data received:', data);
       
-      // Update the user's balance
       const updatedUser = {
         ...currentUser,
         balance: data.balance || currentUser.balance,
@@ -450,22 +655,18 @@ const AshPay = () => {
     } catch (error) {
       console.error('Error fetching balance:', error);
       setIsRefreshing(false);
-      // Silently fail and keep existing balance
       return null;
     }
   };
 
-  // Auto-refresh balance every 30 seconds
   useEffect(() => {
     if (!currentUser) return;
 
-    // Fetch immediately on login
     fetchBalanceFromBackend(currentUser.id);
 
-    // Set up interval to fetch periodically
     const interval = setInterval(() => {
       fetchBalanceFromBackend(currentUser.id);
-    }, 30000); // 30 seconds
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [currentUser?.id]);
@@ -499,6 +700,7 @@ const AshPay = () => {
     setShowLogoutConfirm(false);
     setPendingDeposits([]);
     setActiveTab('wallet');
+    localStorage.removeItem('ashpay_user');
   };
 
   const confirmLogout = () => {
@@ -506,25 +708,16 @@ const AshPay = () => {
   };
 
   const openTab = (tabName) => {
-    // Close all tabs first
     setShowWallet(false);
     setShowTools(false);
     setShowTeam(false);
     setShowProfile(false);
     
-    // Open the selected tab
     setActiveTab(tabName);
     if (tabName === 'wallet') setShowWallet(true);
     if (tabName === 'payment') setShowTools(true);
     if (tabName === 'team') setShowTeam(true);
     if (tabName === 'profile') setShowProfile(true);
-  };
-
-  const closeAllTabs = () => {
-    setShowWallet(false);
-    setShowTools(false);
-    setShowTeam(false);
-    setShowProfile(false);
   };
 
   const getGreeting = () => {
@@ -615,9 +808,17 @@ const AshPay = () => {
                 e.preventDefault();
                 isLogin ? handleLogin(e) : handleRegister(e);
               }}
-              className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-4 rounded-xl font-semibold"
+              disabled={isLoggingIn || isRegistering}
+              className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-4 rounded-xl font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLogin ? 'Login' : 'Create Account'}
+              {isLoggingIn || isRegistering ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  {isLogin ? 'Logging in...' : 'Creating account...'}
+                </>
+              ) : (
+                isLogin ? 'Login' : 'Create Account'
+              )}
             </button>
           </div>
         </div>
@@ -790,6 +991,41 @@ const AshPay = () => {
         </div>
       </div>
 
+      <div className="fixed bottom-0 left-0 right-0 bg-black/40 backdrop-blur-xl border-t border-white/10 safe-area-bottom z-50">
+        <div className="px-2 py-2.5">
+          <div className="flex justify-around">
+            <button 
+              onClick={() => openTab('wallet')}
+              className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'wallet' ? 'text-white' : 'text-gray-400'}`}
+            >
+              <Wallet className="w-6 h-6" />
+              <span className="text-xs font-medium">Wallet</span>
+            </button>
+            <button
+              onClick={() => openTab('payment')}
+              className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'payment' ? 'text-white' : 'text-gray-400'}`}
+            >
+              <CreditCard className="w-6 h-6" />
+              <span className="text-xs font-medium">Payment</span>
+            </button>
+            <button
+              onClick={() => openTab('team')}
+              className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'team' ? 'text-white' : 'text-gray-400'}`}
+            >
+              <TrendingUp className="w-6 h-6" />
+              <span className="text-xs font-medium">Team</span>
+            </button>
+            <button
+              onClick={() => openTab('profile')}
+              className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'profile' ? 'text-white' : 'text-gray-400'}`}
+            >
+              <User className="w-6 h-6" />
+              <span className="text-xs font-medium">Profile</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       {showDeposit && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
           <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-6 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
@@ -937,403 +1173,6 @@ const AshPay = () => {
         </div>
       )}
 
-      {showTools && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-6 max-w-2xl w-full my-8 relative max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => {
-                setShowTools(false);
-                setActiveTab('wallet');
-              }}
-              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors z-10"
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-            
-            <h2 className="text-xl font-bold text-white mb-4">Payment Details</h2>
-            
-            <div className="flex gap-2 mb-4">
-              <button
-                onClick={() => setPaymentMethod('bank')}
-                className={`flex-1 py-2.5 rounded-xl font-semibold text-sm ${
-                  paymentMethod === 'bank' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' : 'bg-white/10 text-gray-300'
-                }`}
-              >
-                Bank Account
-              </button>
-              <button
-                onClick={() => setPaymentMethod('upi')}
-                className={`flex-1 py-2.5 rounded-xl font-semibold text-sm ${
-                  paymentMethod === 'upi' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' : 'bg-white/10 text-gray-300'
-                }`}
-              >
-                UPI
-              </button>
-            </div>
-
-            {paymentMethod === 'bank' ? (
-              <div className="space-y-3 mb-4">
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Account Holder Name"
-                    value={bankDetails.accountName}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/[^a-zA-Z\s]/g, '');
-                      setBankDetails({ ...bankDetails, accountName: value });
-                      setPaymentErrors({ ...paymentErrors, accountName: '' });
-                    }}
-                    className={`w-full px-3 py-2.5 bg-white/10 border ${paymentErrors.accountName ? 'border-red-500' : 'border-white/20'} rounded-xl text-white placeholder-gray-400 text-sm`}
-                  />
-                  {paymentErrors.accountName && <p className="text-red-400 text-xs mt-1">{paymentErrors.accountName}</p>}
-                </div>
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Account Number"
-                    value={bankDetails.accountNumber}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '');
-                      setBankDetails({ ...bankDetails, accountNumber: value });
-                      setPaymentErrors({ ...paymentErrors, accountNumber: '' });
-                    }}
-                    className={`w-full px-3 py-2.5 bg-white/10 border ${paymentErrors.accountNumber ? 'border-red-500' : 'border-white/20'} rounded-xl text-white placeholder-gray-400 text-sm`}
-                  />
-                  {paymentErrors.accountNumber && <p className="text-red-400 text-xs mt-1">{paymentErrors.accountNumber}</p>}
-                </div>
-                <div>
-                  <input
-                    type="text"
-                    placeholder="IFSC Code"
-                    value={bankDetails.ifsc}
-                    onChange={(e) => {
-                      const value = e.target.value.toUpperCase();
-                      setBankDetails({ ...bankDetails, ifsc: value });
-                      setPaymentErrors({ ...paymentErrors, ifsc: '' });
-                    }}
-                    className={`w-full px-3 py-2.5 bg-white/10 border ${paymentErrors.ifsc ? 'border-red-500' : 'border-white/20'} rounded-xl text-white placeholder-gray-400 text-sm`}
-                  />
-                  {paymentErrors.ifsc && <p className="text-red-400 text-xs mt-1">{paymentErrors.ifsc}</p>}
-                </div>
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Bank Name"
-                    value={bankDetails.bankName}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/[^a-zA-Z\s]/g, '');
-                      setBankDetails({ ...bankDetails, bankName: value });
-                      setPaymentErrors({ ...paymentErrors, bankName: '' });
-                    }}
-                    className={`w-full px-3 py-2.5 bg-white/10 border ${paymentErrors.bankName ? 'border-red-500' : 'border-white/20'} rounded-xl text-white placeholder-gray-400 text-sm`}
-                  />
-                  {paymentErrors.bankName && <p className="text-red-400 text-xs mt-1">{paymentErrors.bankName}</p>}
-                </div>
-              </div>
-            ) : (
-              <div className="mb-4">
-                <input
-                  type="text"
-                  placeholder="UPI ID (e.g., username@paytm)"
-                  value={upiId}
-                  onChange={(e) => {
-                    setUpiId(e.target.value.toLowerCase());
-                    setPaymentErrors({ ...paymentErrors, upiId: '' });
-                  }}
-                  className={`w-full px-3 py-2.5 bg-white/10 border ${paymentErrors.upiId ? 'border-red-500' : 'border-white/20'} rounded-xl text-white placeholder-gray-400 text-sm`}
-                />
-                {paymentErrors.upiId && <p className="text-red-400 text-xs mt-1">{paymentErrors.upiId}</p>}
-              </div>
-            )}
-
-            <button
-              onClick={savePaymentDetails}
-              className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-xl mb-4 text-sm font-semibold"
-            >
-              Save Payment Details
-            </button>
-
-            {currentUser.paymentDetails && currentUser.paymentDetails.length > 0 && (
-              <div className="mt-4">
-                <h3 className="text-base font-semibold text-white mb-3">Saved Payment Methods</h3>
-                <div className="space-y-2">
-                  {currentUser.paymentDetails.map(detail => (
-                    <div key={detail.id} className="bg-white/10 p-3 rounded-xl flex justify-between items-center">
-                      <div>
-                        {detail.type === 'bank' ? (
-                          <>
-                            <div className="text-white font-semibold text-sm">{detail.accountName}</div>
-                            <div className="text-gray-300 text-xs">{detail.bankName} - {detail.accountNumber}</div>
-                            <div className="text-gray-400 text-xs">{detail.ifsc}</div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="text-white font-semibold text-sm">UPI</div>
-                            <div className="text-gray-300 text-xs">{detail.upiId}</div>
-                          </>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => confirmDeletePayment(detail.id)}
-                        className="p-2 bg-red-500 rounded-lg hover:bg-red-600 transition-colors active:scale-95"
-                      >
-                        <X className="w-4 h-4 text-white" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {showDeletePaymentConfirm && (
-              <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[60]">
-                <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
-                  <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <X className="w-7 h-7 text-red-600" />
-                  </div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">Delete Payment Method?</h3>
-                  <p className="text-gray-600 text-sm mb-4">Are you sure you want to remove this payment method?</p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        setShowDeletePaymentConfirm(false);
-                        setPaymentToDelete(null);
-                      }}
-                      className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-xl font-semibold hover:bg-gray-300 transition-colors text-sm"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => removePaymentDetails(paymentToDelete)}
-                      className="flex-1 bg-red-600 text-white py-2.5 rounded-xl font-semibold hover:bg-red-700 transition-colors text-sm"
-                    >
-                      Yes, Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {showToolsThankYou && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-8 max-w-md w-full text-center relative">
-            <button
-              onClick={() => setShowToolsThankYou(false)}
-              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-            
-            <Check className="w-16 h-16 text-green-400 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-white mb-2">Success!</h2>
-            <p className="text-gray-300 mb-6">Payment details saved successfully</p>
-          </div>
-        </div>
-      )}
-
-      {showProfile && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-6 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => {
-                setShowProfile(false);
-                setPasswordChange({ current: '', new: '', confirm: '' });
-                setPasswordError('');
-                setActiveTab('wallet');
-              }}
-              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors z-10"
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-            
-            <h2 className="text-xl font-bold text-white mb-4">Profile</h2>
-            
-            <div className="bg-white/10 p-3 rounded-xl mb-4 space-y-2">
-              <div>
-                <p className="text-gray-400 text-xs">User ID</p>
-                <p className="text-white font-semibold text-sm">{currentUser.id}</p>
-              </div>
-              <div>
-                <p className="text-gray-400 text-xs">Name</p>
-                <p className="text-white font-semibold text-sm">{currentUser.name}</p>
-              </div>
-              <div>
-                <p className="text-gray-400 text-xs">Mobile Number</p>
-                <p className="text-white font-semibold text-sm">{currentUser.mobile}</p>
-              </div>
-            </div>
-
-            <div className="space-y-3 mb-4">
-              <h3 className="text-base font-semibold text-white">Change Password</h3>
-              <input
-                type="password"
-                placeholder="Current Password"
-                value={passwordChange.current}
-                onChange={(e) => setPasswordChange({ ...passwordChange, current: e.target.value })}
-                className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 text-sm"
-              />
-              <input
-                type="password"
-                placeholder="New Password"
-                value={passwordChange.new}
-                onChange={(e) => setPasswordChange({ ...passwordChange, new: e.target.value })}
-                className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 text-sm"
-              />
-              <input
-                type="password"
-                placeholder="Confirm New Password"
-                value={passwordChange.confirm}
-                onChange={(e) => setPasswordChange({ ...passwordChange, confirm: e.target.value })}
-                className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 text-sm"
-              />
-              {passwordError && <p className="text-red-400 text-xs">{passwordError}</p>}
-            </div>
-            <button
-              onClick={handlePasswordChange}
-              className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-xl text-sm font-semibold"
-            >
-              Update Password
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showTeam && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-6 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => {
-                setShowTeam(false);
-                setActiveTab('wallet');
-              }}
-              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors z-10"
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-            
-            <h2 className="text-xl font-bold text-white mb-4">My Team</h2>
-            
-            <div className="bg-gradient-to-r from-yellow-500/20 to-orange-500/20 backdrop-blur-xl rounded-2xl p-4 border border-yellow-500/30 mb-4">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="bg-gradient-to-br from-yellow-400 to-orange-500 p-2 rounded-lg">
-                  <TrendingUp className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-white">Referral Benefits</h3>
-                  <p className="text-yellow-200 text-xs">Earn with every referral</p>
-                </div>
-              </div>
-              
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 mb-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-green-400 font-bold text-lg">₹</span>
-                  </div>
-                  <div>
-                    <p className="text-white font-bold text-sm">₹200 Instant Bonus</p>
-                    <p className="text-gray-300 text-xs">When they make their 1st deposit</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-purple-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-purple-400 font-bold text-lg">1%</span>
-                  </div>
-                  <div>
-                    <p className="text-white font-bold text-sm">1% Lifetime Commission</p>
-                    <p className="text-gray-300 text-xs">On every deposit they make forever</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white/10 p-3 rounded-xl">
-                <p className="text-gray-300 text-xs mb-2 font-semibold">Your Referral Code:</p>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="text"
-                    value={referralCode}
-                    readOnly
-                    className="flex-1 px-2 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-bold min-w-0 overflow-hidden"
-                  />
-                  <button onClick={copyReferralCode} className="p-2 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-lg flex-shrink-0">
-                    {copiedReferral ? <Check className="w-4 h-4 text-black" /> : <Copy className="w-4 h-4 text-black" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white/10 p-4 rounded-xl">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-gray-300 text-sm">Total Referrals</span>
-                <span className="text-white font-bold text-lg">{currentUser.referrals?.length || 0}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-300 text-sm">Commission Earned</span>
-                <span className="text-green-400 font-bold text-lg">₹{currentUser.referralCommission || 0}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showWallet && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-6 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => {
-                setShowWallet(false);
-                setActiveTab('wallet');
-              }}
-              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors z-10"
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-            
-            <h2 className="text-xl font-bold text-white mb-4">My Wallet</h2>
-            
-            <div className="space-y-3 mb-4">
-              <div className="bg-white/10 p-4 rounded-2xl">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-10 h-10 bg-green-500/20 rounded-full flex items-center justify-center">
-                    <Wallet className="w-5 h-5 text-green-400" />
-                  </div>
-                  <div>
-                    <p className="text-gray-300 text-xs">Available Balance</p>
-                    <p className="text-white text-xl font-bold">₹{currentUser.balance.toFixed(2)}</p>
-                  </div>
-                </div>
-                <p className="text-gray-400 text-xs">Ready to withdraw or use</p>
-              </div>
-
-              <div className="bg-white/10 p-4 rounded-2xl">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-10 h-10 bg-yellow-500/20 rounded-full flex items-center justify-center">
-                    <Clock className="w-5 h-5 text-yellow-400" />
-                  </div>
-                  <div>
-                    <p className="text-gray-300 text-xs">Pending Balance</p>
-                    <p className="text-white text-xl font-bold">₹{calculatePendingBalance().toFixed(2)}</p>
-                  </div>
-                </div>
-                <p className="text-gray-400 text-xs">Processing deposits</p>
-              </div>
-
-              <div className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 p-4 rounded-2xl border border-purple-500/30">
-                <div className="flex items-center gap-2">
-                  <Shield className="w-7 h-7 text-purple-400" />
-                  <div>
-                    <p className="text-gray-300 text-xs">Total Balance</p>
-                    <p className="text-white text-2xl font-bold">₹{currentUser.balance.toFixed(2)}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showLogoutConfirm && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
@@ -1359,8 +1198,6 @@ const AshPay = () => {
           </div>
         </div>
       )}
-
-
 
       {showSupport && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
@@ -1390,7 +1227,7 @@ const AshPay = () => {
               </a>
               
               <a
-                href="http://telegram.me/Ashpay_Support"
+                href="tg://resolve?domain=Ashpay_Support"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center gap-3 w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white py-4 rounded-xl font-semibold hover:shadow-lg transition-shadow"
@@ -1404,41 +1241,6 @@ const AshPay = () => {
           </div>
         </div>
       )}
-
-      <div className="fixed bottom-0 left-0 right-0 bg-black/40 backdrop-blur-xl border-t border-white/10 safe-area-bottom z-50">
-        <div className="px-2 py-2.5">
-          <div className="flex justify-around">
-            <button 
-              onClick={() => openTab('wallet')}
-              className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'wallet' ? 'text-white' : 'text-gray-400'}`}
-            >
-              <Wallet className="w-6 h-6" />
-              <span className="text-xs font-medium">Wallet</span>
-            </button>
-            <button
-              onClick={() => openTab('payment')}
-              className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'payment' ? 'text-white' : 'text-gray-400'}`}
-            >
-              <CreditCard className="w-6 h-6" />
-              <span className="text-xs font-medium">Payment</span>
-            </button>
-            <button
-              onClick={() => openTab('team')}
-              className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'team' ? 'text-white' : 'text-gray-400'}`}
-            >
-              <TrendingUp className="w-6 h-6" />
-              <span className="text-xs font-medium">Team</span>
-            </button>
-            <button
-              onClick={() => openTab('profile')}
-              className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'profile' ? 'text-white' : 'text-gray-400'}`}
-            >
-              <User className="w-6 h-6" />
-              <span className="text-xs font-medium">Profile</span>
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
