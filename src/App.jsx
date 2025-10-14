@@ -46,18 +46,35 @@ const AshPay = () => {
 
   useEffect(() => {
     const savedUser = localStorage.getItem('ashpay_user');
+    
     if (savedUser) {
       try {
         const user = JSON.parse(savedUser);
         setCurrentUser(user);
         setShowAuth(false);
         console.log('User session restored');
+        
+        // Fetch pending deposits from server
+        fetchPendingDeposits(user.id);
       } catch (error) {
         console.error('Error restoring session:', error);
         localStorage.removeItem('ashpay_user');
       }
     }
   }, []);
+
+  const fetchPendingDeposits = async (userId) => {
+    try {
+      const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${userId}/pending-deposits`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setPendingDeposits(data.pendingDeposits || []);
+      }
+    } catch (error) {
+      console.error('Error fetching pending deposits:', error);
+    }
+  };
 
   useEffect(() => {
     if (currentUser) {
@@ -69,10 +86,8 @@ const AshPay = () => {
 
   useEffect(() => {
     const handleBackButton = (e) => {
-      // Prevent default back behavior
       e.preventDefault();
       
-      // Close modals first (highest priority)
       if (showThankYou) {
         setShowThankYou(false);
         window.history.pushState(null, '', window.location.href);
@@ -94,7 +109,6 @@ const AshPay = () => {
         return;
       }
       
-      // Close overlay screens
       if (showDeposit) {
         setShowDeposit(false);
         window.history.pushState(null, '', window.location.href);
@@ -111,7 +125,6 @@ const AshPay = () => {
         return;
       }
       
-      // Handle tab navigation - if not on wallet tab, go back to wallet
       if (activeTab !== 'wallet') {
         setShowTools(false);
         setShowProfile(false);
@@ -122,10 +135,7 @@ const AshPay = () => {
         return;
       }
       
-      // If on wallet tab and logged in, minimize app (don't logout)
       if (currentUser && !showAuth && activeTab === 'wallet') {
-        // On Android PWA, this will minimize the app
-        // On browser, this will close the tab (browser will ask for confirmation)
         if (window.confirm('Do you want to exit the app?')) {
           window.close();
         }
@@ -134,10 +144,7 @@ const AshPay = () => {
       }
     };
 
-    // Listen for back button
     window.addEventListener('popstate', handleBackButton);
-    
-    // Push initial state to prevent immediate back
     window.history.pushState(null, '', window.location.href);
     
     return () => {
@@ -209,27 +216,19 @@ const AshPay = () => {
   const handleRegister = async (e) => {
     e.preventDefault();
     
-    console.log('Register button clicked!');
-    console.log('Form data:', formData);
-    
     const mobileError = validateMobile(formData.mobile);
     const passwordError = validatePassword(formData.password);
-    
-    console.log('Validation errors:', { mobileError, passwordError });
     
     setFormErrors({ mobile: mobileError, password: passwordError });
     
     if (mobileError || passwordError || !formData.name) {
       if (!formData.name) alert('Please enter your name');
-      console.log('Validation failed, stopping');
       return;
     }
     
-    console.log('Starting registration...');
     setIsRegistering(true);
     
     try {
-      console.log('Sending request to backend...');
       const response = await fetch('https://ashpay-backend.onrender.com/api/register', {
         method: 'POST',
         headers: {
@@ -243,9 +242,7 @@ const AshPay = () => {
         })
       });
 
-      console.log('Response received:', response.status);
       const data = await response.json();
-      console.log('Response data:', data);
 
       if (!response.ok) {
         if (data.error === 'Mobile number already registered') {
@@ -257,7 +254,6 @@ const AshPay = () => {
         return;
       }
 
-      console.log('Registration successful!');
       setCurrentUser(data.user);
       setPendingDeposits([]);
       setShowAuth(false);
@@ -389,7 +385,7 @@ const AshPay = () => {
     }
   };
 
-  const handleDeposit = () => {
+  const handleDeposit = async () => {
     if (!depositAmount || depositAmount <= 0) {
       alert('Please enter a valid amount');
       return;
@@ -408,13 +404,37 @@ const AshPay = () => {
       usdtAmount: parseFloat(depositAmount),
       inrAmount: inrAmount,
       network: selectedNetwork,
-      status: 'pending'
+      status: 'pending',
+      createdAt: new Date().toISOString()
     };
 
-    setPendingDeposits([...pendingDeposits, pendingDeposit]);
-    setDepositAmount('');
-    setShowDeposit(false);
-    setShowThankYou(true);
+    try {
+      // Save pending deposit to database
+      const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}/pending-deposit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(pendingDeposit)
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save deposit');
+      }
+
+      const data = await response.json();
+      
+      // Update local state with server response
+      setCurrentUser(data.user);
+      setPendingDeposits(data.user.pendingDeposits || []);
+      setDepositAmount('');
+      setShowDeposit(false);
+      setShowThankYou(true);
+      
+    } catch (error) {
+      console.error('Error saving deposit:', error);
+      alert('Failed to submit deposit request. Please try again.');
+    }
   };
 
   const validateBankDetails = () => {
@@ -495,8 +515,6 @@ const AshPay = () => {
       const updatedDetails = [...savedPaymentDetails, details];
       
       try {
-        console.log('Sending bank details to backend:', { paymentDetails: updatedDetails });
-        
         const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}`, {
           method: 'PUT',
           headers: {
@@ -507,9 +525,7 @@ const AshPay = () => {
           })
         });
 
-        console.log('Response status:', response.status);
         const responseText = await response.text();
-        console.log('Response text:', responseText);
 
         if (!response.ok) {
           throw new Error(`Server returned ${response.status}: ${responseText}`);
@@ -543,8 +559,6 @@ const AshPay = () => {
       const updatedDetails = [...savedPaymentDetails, details];
       
       try {
-        console.log('Sending UPI details to backend:', { paymentDetails: updatedDetails });
-        
         const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}`, {
           method: 'PUT',
           headers: {
@@ -555,9 +569,7 @@ const AshPay = () => {
           })
         });
 
-        console.log('Response status:', response.status);
         const responseText = await response.text();
-        console.log('Response text:', responseText);
 
         if (!response.ok) {
           throw new Error(`Server returned ${response.status}: ${responseText}`);
@@ -744,8 +756,11 @@ const AshPay = () => {
     setShowLogoutConfirm(true);
   };
 
+  const openTelegram = () => {
+    window.open('https://t.me/Ashpay_Support', '_blank');
+  };
+
   const openTab = (tabName) => {
-    // Close all screens first
     setShowWallet(false);
     setShowTools(false);
     setShowTeam(false);
@@ -756,12 +771,10 @@ const AshPay = () => {
     setShowThankYou(false);
     setShowToolsThankYou(false);
     
-    // Set active tab
     setActiveTab(tabName);
     
-    // Open the corresponding screen
     if (tabName === 'wallet') {
-      setShowWallet(false); // Wallet is the main view, no overlay needed
+      setShowWallet(false);
     } else if (tabName === 'payment') {
       setShowTools(true);
     } else if (tabName === 'team') {
@@ -1161,6 +1174,23 @@ const AshPay = () => {
         </div>
       )}
 
+      {showToolsThankYou && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-8 max-w-md w-full text-center relative">
+            <button
+              onClick={() => setShowToolsThankYou(false)}
+              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
+            >
+              <X className="w-5 h-5 text-white" />
+            </button>
+            
+            <Check className="w-16 h-16 text-green-400 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-white mb-2">Success!</h2>
+            <p className="text-gray-300 mb-6">Payment method saved successfully</p>
+          </div>
+        </div>
+      )}
+
       {showHistory && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
           <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto relative">
@@ -1240,19 +1270,19 @@ const AshPay = () => {
             <h2 className="text-xl font-bold text-white mb-4">My Team</h2>
             
             <div className="bg-gradient-to-r from-yellow-500/20 to-orange-500/20 backdrop-blur-xl rounded-2xl p-4 border border-yellow-500/30 mb-4">
-              <h3 className="text-lg font-bold text-white mb-3">Your Referral Code</h3>
-              <div className="flex gap-2 items-center">
+              <h3 className="text-base font-bold text-white mb-3">Your Referral Code</h3>
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 flex items-center justify-between gap-2">
                 <input
                   type="text"
                   value={referralCode}
                   readOnly
-                  className="flex-1 px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white text-lg font-bold text-center"
+                  className="flex-1 bg-transparent border-none text-white text-xl font-bold text-center outline-none"
                 />
-                <button onClick={copyReferralCode} className="p-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl">
+                <button onClick={copyReferralCode} className="p-2.5 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex-shrink-0">
                   {copiedReferral ? <Check className="w-5 h-5 text-white" /> : <Copy className="w-5 h-5 text-white" />}
                 </button>
               </div>
-              <p className="text-yellow-200 text-sm mt-3 text-center">Share this code with friends to earn rewards!</p>
+              <p className="text-yellow-200 text-xs mt-3 text-center">Share this code with friends to earn rewards!</p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-4">
@@ -1598,17 +1628,15 @@ const AshPay = () => {
                 Live Chat Support
               </a>
               
-              <a
-                href="https://t.me/Ashpay_Support"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={openTelegram}
                 className="inline-flex items-center justify-center gap-3 w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white py-4 rounded-xl font-semibold hover:shadow-lg transition-shadow"
               >
                 <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.941z"/>
                 </svg>
                 Telegram Support
-              </a>
+              </button>
             </div>
           </div>
         </div>
