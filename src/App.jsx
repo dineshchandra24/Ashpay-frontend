@@ -37,6 +37,7 @@ const AshPay = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
 
   const walletAddresses = {
     BSC: '0xc78d59e82feaf166b469a5e62d82114c1e1d3727',
@@ -483,14 +484,19 @@ const AshPay = () => {
       return;
     }
     
+    setIsSavingPayment(true);
+    
     if (paymentMethod === 'bank') {
       if (!validateBankDetails()) {
+        setIsSavingPayment(false);
         return;
       }
       const details = { id: Date.now(), type: 'bank', ...bankDetails };
       const updatedDetails = [...savedPaymentDetails, details];
       
       try {
+        console.log('Sending bank details to backend:', { paymentDetails: updatedDetails });
+        
         const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}`, {
           method: 'PUT',
           headers: {
@@ -501,28 +507,44 @@ const AshPay = () => {
           })
         });
 
-        const data = await response.json();
-        
-        if (response.ok) {
-          setCurrentUser(data.user);
-          const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
-          setUsers(updatedUsers);
-          setBankDetails({ accountName: '', accountNumber: '', ifsc: '', bankName: '' });
-          setPaymentErrors({ accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' });
-          setShowToolsThankYou(true);
+        console.log('Response status:', response.status);
+        const responseText = await response.text();
+        console.log('Response text:', responseText);
+
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}: ${responseText}`);
         }
+
+        const data = JSON.parse(responseText);
+        
+        setCurrentUser(data.user);
+        const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
+        setUsers(updatedUsers);
+        setBankDetails({ accountName: '', accountNumber: '', ifsc: '', bankName: '' });
+        setPaymentErrors({ accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' });
+        setIsSavingPayment(false);
+        setShowToolsThankYou(true);
+        
       } catch (error) {
         console.error('Error saving payment details:', error);
-        alert('Failed to save payment details');
+        setIsSavingPayment(false);
+        if (error.message.includes('Failed to fetch')) {
+          alert('❌ Server is starting up. Please wait 30 seconds and try again.');
+        } else {
+          alert('❌ Failed to save payment details: ' + error.message);
+        }
       }
     } else {
       if (!validateUPI()) {
+        setIsSavingPayment(false);
         return;
       }
       const details = { id: Date.now(), type: 'upi', upiId };
       const updatedDetails = [...savedPaymentDetails, details];
       
       try {
+        console.log('Sending UPI details to backend:', { paymentDetails: updatedDetails });
+        
         const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}`, {
           method: 'PUT',
           headers: {
@@ -533,19 +555,32 @@ const AshPay = () => {
           })
         });
 
-        const data = await response.json();
-        
-        if (response.ok) {
-          setCurrentUser(data.user);
-          const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
-          setUsers(updatedUsers);
-          setUpiId('');
-          setPaymentErrors({ accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' });
-          setShowToolsThankYou(true);
+        console.log('Response status:', response.status);
+        const responseText = await response.text();
+        console.log('Response text:', responseText);
+
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}: ${responseText}`);
         }
+
+        const data = JSON.parse(responseText);
+        
+        setCurrentUser(data.user);
+        const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
+        setUsers(updatedUsers);
+        setUpiId('');
+        setPaymentErrors({ accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' });
+        setIsSavingPayment(false);
+        setShowToolsThankYou(true);
+        
       } catch (error) {
         console.error('Error saving payment details:', error);
-        alert('Failed to save payment details');
+        setIsSavingPayment(false);
+        if (error.message.includes('Failed to fetch')) {
+          alert('❌ Server is starting up. Please wait 30 seconds and try again.');
+        } else {
+          alert('❌ Failed to save payment details: ' + error.message);
+        }
       }
     }
   };
@@ -572,10 +607,12 @@ const AshPay = () => {
         setUsers(updatedUsers);
         setShowDeletePaymentConfirm(false);
         setPaymentToDelete(null);
+      } else {
+        alert('❌ Failed to delete: ' + (data.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error deleting payment method:', error);
-      alert('Failed to delete payment method');
+      alert('❌ Failed to delete payment method. Please check your connection.');
     }
   };
 
@@ -708,16 +745,30 @@ const AshPay = () => {
   };
 
   const openTab = (tabName) => {
+    // Close all screens first
     setShowWallet(false);
     setShowTools(false);
     setShowTeam(false);
     setShowProfile(false);
+    setShowDeposit(false);
+    setShowHistory(false);
+    setShowSupport(false);
+    setShowThankYou(false);
+    setShowToolsThankYou(false);
     
+    // Set active tab
     setActiveTab(tabName);
-    if (tabName === 'wallet') setShowWallet(true);
-    if (tabName === 'payment') setShowTools(true);
-    if (tabName === 'team') setShowTeam(true);
-    if (tabName === 'profile') setShowProfile(true);
+    
+    // Open the corresponding screen
+    if (tabName === 'wallet') {
+      setShowWallet(false); // Wallet is the main view, no overlay needed
+    } else if (tabName === 'payment') {
+      setShowTools(true);
+    } else if (tabName === 'team') {
+      setShowTeam(true);
+    } else if (tabName === 'profile') {
+      setShowProfile(true);
+    }
   };
 
   const getGreeting = () => {
@@ -1112,7 +1163,7 @@ const AshPay = () => {
 
       {showHistory && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-6 max-w-2xl w-full max-h-[85vh] overflow-y-auto relative">
+          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto relative">
             <button
               onClick={() => setShowHistory(false)}
               className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors z-10"
@@ -1173,6 +1224,327 @@ const AshPay = () => {
         </div>
       )}
 
+      {showTeam && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto relative">
+            <button
+              onClick={() => {
+                setShowTeam(false);
+                setActiveTab('wallet');
+              }}
+              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors z-10"
+            >
+              <X className="w-5 h-5 text-white" />
+            </button>
+            
+            <h2 className="text-xl font-bold text-white mb-4">My Team</h2>
+            
+            <div className="bg-gradient-to-r from-yellow-500/20 to-orange-500/20 backdrop-blur-xl rounded-2xl p-4 border border-yellow-500/30 mb-4">
+              <h3 className="text-lg font-bold text-white mb-3">Your Referral Code</h3>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  value={referralCode}
+                  readOnly
+                  className="flex-1 px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white text-lg font-bold text-center"
+                />
+                <button onClick={copyReferralCode} className="p-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl">
+                  {copiedReferral ? <Check className="w-5 h-5 text-white" /> : <Copy className="w-5 h-5 text-white" />}
+                </button>
+              </div>
+              <p className="text-yellow-200 text-sm mt-3 text-center">Share this code with friends to earn rewards!</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-white/10 backdrop-blur-xl rounded-xl p-4 border border-white/20">
+                <div className="text-2xl font-bold text-white">{currentUser.referrals?.length || 0}</div>
+                <div className="text-gray-300 text-sm">Total Referrals</div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-xl rounded-xl p-4 border border-white/20">
+                <div className="text-2xl font-bold text-green-400">₹{currentUser.referralCommission?.toFixed(2) || '0.00'}</div>
+                <div className="text-gray-300 text-sm">Total Earned</div>
+              </div>
+            </div>
+
+            <h3 className="text-base font-semibold text-white mb-3">Your Referrals</h3>
+            {currentUser.referrals && currentUser.referrals.length > 0 ? (
+              <div className="space-y-2">
+                {currentUser.referrals.map((referral, index) => (
+                  <div key={index} className="bg-white/10 p-3 rounded-xl">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <div className="text-white font-semibold text-sm">{referral.name}</div>
+                        <div className="text-gray-300 text-xs">ID: {referral.id}</div>
+                      </div>
+                      <div className="text-gray-400 text-xs">{new Date(referral.date).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-300 text-center py-6 text-sm">No referrals yet. Share your code to get started!</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showProfile && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto relative">
+            <button
+              onClick={() => {
+                setShowProfile(false);
+                setActiveTab('wallet');
+              }}
+              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors z-10"
+            >
+              <X className="w-5 h-5 text-white" />
+            </button>
+            
+            <div className="text-center mb-6">
+              <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <User className="w-10 h-10 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-white">{currentUser.name}</h2>
+              <p className="text-gray-300 text-sm">ID: {currentUser.id}</p>
+            </div>
+
+            <div className="bg-white/10 backdrop-blur-xl rounded-xl p-4 border border-white/20 mb-4">
+              <div className="space-y-3">
+                <div>
+                  <label className="text-gray-400 text-xs">Mobile Number</label>
+                  <div className="text-white font-semibold">{currentUser.mobile}</div>
+                </div>
+                <div>
+                  <label className="text-gray-400 text-xs">Member Since</label>
+                  <div className="text-white font-semibold">{new Date(currentUser.createdAt || Date.now()).toLocaleDateString()}</div>
+                </div>
+              </div>
+            </div>
+
+            <h3 className="text-base font-semibold text-white mb-3">Change Password</h3>
+            <div className="space-y-3 mb-4">
+              <input
+                type="password"
+                placeholder="Current Password"
+                value={passwordChange.current}
+                onChange={(e) => setPasswordChange({ ...passwordChange, current: e.target.value })}
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400"
+              />
+              <input
+                type="password"
+                placeholder="New Password"
+                value={passwordChange.new}
+                onChange={(e) => setPasswordChange({ ...passwordChange, new: e.target.value })}
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400"
+              />
+              <input
+                type="password"
+                placeholder="Confirm New Password"
+                value={passwordChange.confirm}
+                onChange={(e) => setPasswordChange({ ...passwordChange, confirm: e.target.value })}
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400"
+              />
+              {passwordError && <p className="text-red-400 text-sm">{passwordError}</p>}
+              <button
+                onClick={handlePasswordChange}
+                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-xl font-semibold"
+              >
+                Update Password
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTools && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto relative">
+            <button
+              onClick={() => {
+                setShowTools(false);
+                setActiveTab('wallet');
+              }}
+              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors z-10"
+            >
+              <X className="w-5 h-5 text-white" />
+            </button>
+            
+            <h2 className="text-xl font-bold text-white mb-4">Payment Methods</h2>
+
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setPaymentMethod('bank')}
+                className={`flex-1 py-2.5 rounded-xl font-semibold transition-all ${
+                  paymentMethod === 'bank' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' : 'bg-white/10 text-gray-300'
+                }`}
+              >
+                Bank Account
+              </button>
+              <button
+                onClick={() => setPaymentMethod('upi')}
+                className={`flex-1 py-2.5 rounded-xl font-semibold transition-all ${
+                  paymentMethod === 'upi' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' : 'bg-white/10 text-gray-300'
+                }`}
+              >
+                UPI
+              </button>
+            </div>
+
+            {paymentMethod === 'bank' ? (
+              <div className="space-y-3 mb-4">
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Account Holder Name"
+                    value={bankDetails.accountName}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^a-zA-Z\s]/g, '');
+                      setBankDetails({ ...bankDetails, accountName: value });
+                      setPaymentErrors({ ...paymentErrors, accountName: '' });
+                    }}
+                    className={`w-full px-4 py-3 bg-white/10 border ${paymentErrors.accountName ? 'border-red-500' : 'border-white/20'} rounded-xl text-white placeholder-gray-400`}
+                  />
+                  {paymentErrors.accountName && <p className="text-red-400 text-xs mt-1">{paymentErrors.accountName}</p>}
+                </div>
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Account Number"
+                    value={bankDetails.accountNumber}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 18);
+                      setBankDetails({ ...bankDetails, accountNumber: value });
+                      setPaymentErrors({ ...paymentErrors, accountNumber: '' });
+                    }}
+                    className={`w-full px-4 py-3 bg-white/10 border ${paymentErrors.accountNumber ? 'border-red-500' : 'border-white/20'} rounded-xl text-white placeholder-gray-400`}
+                  />
+                  {paymentErrors.accountNumber && <p className="text-red-400 text-xs mt-1">{paymentErrors.accountNumber}</p>}
+                </div>
+                <div>
+                  <input
+                    type="text"
+                    placeholder="IFSC Code"
+                    value={bankDetails.ifsc}
+                    onChange={(e) => {
+                      const value = e.target.value.toUpperCase().slice(0, 11);
+                      setBankDetails({ ...bankDetails, ifsc: value });
+                      setPaymentErrors({ ...paymentErrors, ifsc: '' });
+                    }}
+                    className={`w-full px-4 py-3 bg-white/10 border ${paymentErrors.ifsc ? 'border-red-500' : 'border-white/20'} rounded-xl text-white placeholder-gray-400`}
+                  />
+                  {paymentErrors.ifsc && <p className="text-red-400 text-xs mt-1">{paymentErrors.ifsc}</p>}
+                </div>
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Bank Name"
+                    value={bankDetails.bankName}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^a-zA-Z\s]/g, '');
+                      setBankDetails({ ...bankDetails, bankName: value });
+                      setPaymentErrors({ ...paymentErrors, bankName: '' });
+                    }}
+                    className={`w-full px-4 py-3 bg-white/10 border ${paymentErrors.bankName ? 'border-red-500' : 'border-white/20'} rounded-xl text-white placeholder-gray-400`}
+                  />
+                  {paymentErrors.bankName && <p className="text-red-400 text-xs mt-1">{paymentErrors.bankName}</p>}
+                </div>
+              </div>
+            ) : (
+              <div className="mb-4">
+                <input
+                  type="text"
+                  placeholder="UPI ID (e.g., username@paytm)"
+                  value={upiId}
+                  onChange={(e) => {
+                    setUpiId(e.target.value);
+                    setPaymentErrors({ ...paymentErrors, upiId: '' });
+                  }}
+                  className={`w-full px-4 py-3 bg-white/10 border ${paymentErrors.upiId ? 'border-red-500' : 'border-white/20'} rounded-xl text-white placeholder-gray-400`}
+                />
+                {paymentErrors.upiId && <p className="text-red-400 text-xs mt-1">{paymentErrors.upiId}</p>}
+              </div>
+            )}
+
+            <button
+              onClick={savePaymentDetails}
+              disabled={isSavingPayment}
+              className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-xl font-semibold mb-4 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSavingPayment ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Payment Method'
+              )}
+            </button>
+
+            <h3 className="text-base font-semibold text-white mb-3">Saved Payment Methods</h3>
+            {currentUser.paymentDetails && currentUser.paymentDetails.length > 0 ? (
+              <div className="space-y-2">
+                {currentUser.paymentDetails.map((detail) => (
+                  <div key={detail.id} className="bg-white/10 p-3 rounded-xl">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        {detail.type === 'bank' ? (
+                          <>
+                            <div className="text-white font-semibold text-sm">{detail.accountName}</div>
+                            <div className="text-gray-300 text-xs">{detail.bankName}</div>
+                            <div className="text-gray-300 text-xs">A/C: {detail.accountNumber}</div>
+                            <div className="text-gray-300 text-xs">IFSC: {detail.ifsc}</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-white font-semibold text-sm">UPI</div>
+                            <div className="text-gray-300 text-xs">{detail.upiId}</div>
+                          </>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => confirmDeletePayment(detail.id)}
+                        className="p-2 bg-red-500/20 rounded-lg hover:bg-red-500/30 transition-colors"
+                      >
+                        <X className="w-4 h-4 text-red-400" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-300 text-center py-6 text-sm">No payment methods saved yet</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showDeletePaymentConfirm && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[60]">
+          <div className="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <X className="w-8 h-8 text-red-600" />
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 mb-3">Delete Payment Method?</h3>
+            <p className="text-gray-600 mb-6">This action cannot be undone.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeletePaymentConfirm(false)}
+                className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => removePaymentDetails(paymentToDelete)}
+                className="flex-1 bg-red-600 text-white py-3 rounded-xl font-semibold hover:bg-red-700 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showLogoutConfirm && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
@@ -1227,7 +1599,7 @@ const AshPay = () => {
               </a>
               
               <a
-                href="tg://resolve?domain=Ashpay_Support"
+                href="https://t.me/Ashpay_Support"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center gap-3 w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white py-4 rounded-xl font-semibold hover:shadow-lg transition-shadow"
