@@ -91,16 +91,6 @@ const AshPay = () => {
     const handleBackButton = (e) => {
       e.preventDefault();
       
-      if (showThankYou) {
-        setShowThankYou(false);
-        window.history.pushState(null, '', window.location.href);
-        return;
-      }
-      if (showToolsThankYou) {
-        setShowToolsThankYou(false);
-        window.history.pushState(null, '', window.location.href);
-        return;
-      }
       if (showDeletePaymentConfirm) {
         setShowDeletePaymentConfirm(false);
         window.history.pushState(null, '', window.location.href);
@@ -467,7 +457,6 @@ const AshPay = () => {
       setPendingDeposits(data.user.pendingDeposits || []);
       setDepositAmount('');
       setShowDeposit(false);
-      setShowThankYou(true);
       
     } catch (error) {
       console.error('Error saving deposit:', error);
@@ -652,8 +641,14 @@ const AshPay = () => {
       const data = await response.json();
       
       if (response.ok) {
-        setCurrentUser(data.user);
-        const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
+        const updatedUser = {
+          ...currentUser,
+          paymentDetails: updatedDetails
+        };
+        setCurrentUser(updatedUser);
+        localStorage.setItem('ashpay_user', JSON.stringify(updatedUser));
+        
+        const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
         setUsers(updatedUsers);
         setShowDeletePaymentConfirm(false);
         setPaymentToDelete(null);
@@ -675,35 +670,36 @@ const AshPay = () => {
     const deposit = pendingDeposits.find(d => d.id === depositId);
     if (!deposit) return;
 
-    const completedTransaction = {
-      ...deposit,
-      status: 'completed',
-      date: new Date().toISOString()
-    };
-
-    const newBalance = currentUser.balance + deposit.inrAmount;
-    const updatedTransactions = [completedTransaction, ...currentUser.transactions];
-
     try {
-      const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}`, {
+      const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}/pending-deposit/${depositId}/complete`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          balance: newBalance,
-          transactions: updatedTransactions
-        })
+        }
       });
+
+      if (!response.ok) {
+        throw new Error('Failed to complete deposit');
+      }
 
       const data = await response.json();
       
-      if (response.ok) {
-        setCurrentUser(data.user);
-        const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
-        setUsers(updatedUsers);
-        setPendingDeposits(prev => prev.filter(d => d.id !== depositId));
-      }
+      // Update user data from backend response
+      setCurrentUser({
+        ...currentUser,
+        balance: data.newBalance,
+        transactions: currentUser.transactions
+      });
+      
+      const updatedUsers = users.map(u => u.id === currentUser.id ? {
+        ...currentUser,
+        balance: data.newBalance
+      } : u);
+      setUsers(updatedUsers);
+      
+      // Remove from pending deposits immediately
+      setPendingDeposits(prev => prev.filter(d => d.id !== depositId));
+      
     } catch (error) {
       console.error('Error completing deposit:', error);
       alert('Failed to complete deposit');
@@ -751,9 +747,10 @@ const AshPay = () => {
 
     fetchBalanceFromBackend(currentUser.id);
 
+    // Refresh more frequently to catch completed deposits
     const interval = setInterval(() => {
       fetchBalanceFromBackend(currentUser.id);
-    }, 30000);
+    }, 5000); // Check every 5 seconds
 
     return () => clearInterval(interval);
   }, [currentUser?.id]);
@@ -1240,39 +1237,7 @@ const AshPay = () => {
         </div>
       )}
 
-      {showThankYou && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-8 max-w-md w-full text-center relative">
-            <button
-              onClick={() => setShowThankYou(false)}
-              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-            
-            <Check className="w-16 h-16 text-green-400 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-white mb-2">Thank You!</h2>
-            <p className="text-gray-300 mb-6">Your deposit request has been submitted</p>
-          </div>
-        </div>
-      )}
 
-      {showToolsThankYou && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-gradient-to-br from-violet-900 to-purple-900 rounded-3xl p-8 max-w-md w-full text-center relative">
-            <button
-              onClick={() => setShowToolsThankYou(false)}
-              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-            
-            <Check className="w-16 h-16 text-green-400 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-white mb-2">Success!</h2>
-            <p className="text-gray-300 mb-6">Payment method saved successfully</p>
-          </div>
-        </div>
-      )}
 
       {showHistory && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
