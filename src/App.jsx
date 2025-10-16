@@ -39,6 +39,8 @@ const AshPay = () => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isSavingPayment, setIsSavingPayment] = useState(false);
   const [tawkLoaded, setTawkLoaded] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
 
   const walletAddresses = {
     BSC: '0xc78d59e82feaf166b469a5e62d82114c1e1d3727',
@@ -183,12 +185,16 @@ const AshPay = () => {
         s1.charset = 'UTF-8';
         s1.setAttribute('crossorigin','*');
         
-        // Enable file uploads
+        // Enable file uploads and configure for mobile
         s1.onload = function() {
           if (window.Tawk_API) {
             window.Tawk_API.onLoad = function() {
-              // File upload is automatically enabled in Tawk.to
-              console.log('Tawk.to chat loaded with file upload support');
+              console.log('Tawk.to chat loaded');
+              // Set visitor info to help with support
+              window.Tawk_API.setAttributes({
+                'name': currentUser?.name || 'Guest',
+                'userId': currentUser?.id || 'N/A'
+              });
             };
           }
         };
@@ -198,7 +204,7 @@ const AshPay = () => {
       
       setTawkLoaded(true);
     }
-  }, [tawkLoaded]);
+  }, [tawkLoaded, currentUser]);
 
   useEffect(() => {
     const generateActivity = () => {
@@ -789,22 +795,52 @@ const AshPay = () => {
   };
 
   const openTelegram = () => {
-    // Try to open in Telegram app first, fallback to web
-    const telegramUrl = 'tg://resolve?domain=Ashpay_Support';
-    const webUrl = 'https://t.me/Ashpay_Support';
-    
-    // Create a hidden link and click it
-    const link = document.createElement('a');
-    link.href = telegramUrl;
-    link.target = '_blank';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    // Fallback to web after short delay if app doesn't open
-    setTimeout(() => {
-      window.open(webUrl, '_blank');
-    }, 1000);
+    // Direct deep link for mobile apps
+    window.location.href = 'https://t.me/Ashpay_Support';
+  };
+
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    setIsUploading(true);
+
+    const cloudinaryUrl = 'https://api.cloudinary.com/v1_1/df7jd6uj6/auto/upload';
+    const uploadPreset = 'ashpay_support';
+
+    try {
+      const uploadPromises = files.map(async (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', uploadPreset);
+
+        const response = await fetch(cloudinaryUrl, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to upload ${file.name}`);
+        }
+
+        const data = await response.json();
+        return {
+          name: file.name,
+          url: data.secure_url,
+          type: file.type,
+          size: file.size,
+        };
+      });
+
+      const uploadResults = await Promise.all(uploadPromises);
+      setUploadedFiles([...uploadedFiles, ...uploadResults]);
+      setIsUploading(false);
+      alert(`✅ ${files.length} file(s) uploaded successfully!`);
+    } catch (error) {
+      console.error('Upload error:', error);
+      setIsUploading(false);
+      alert('❌ Failed to upload files. Please try again.');
+    }
   };
 
   const openTab = (tabName) => {
@@ -1318,16 +1354,10 @@ const AshPay = () => {
             
             <div className="bg-gradient-to-r from-yellow-500/20 to-orange-500/20 backdrop-blur-xl rounded-2xl p-4 border border-yellow-500/30 mb-4">
               <h3 className="text-base font-bold text-white mb-3">Your Referral Code</h3>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 flex items-center justify-between gap-2">
-                <input
-                  type="text"
-                  value={referralCode}
-                  readOnly
-                  className="flex-1 bg-transparent border-none text-white text-xl font-bold text-center outline-none"
-                />
-                <button onClick={copyReferralCode} className="p-2.5 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex-shrink-0">
-                  {copiedReferral ? <Check className="w-5 h-5 text-white" /> : <Copy className="w-5 h-5 text-white" />}
-                </button>
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
+                <div className="text-white text-3xl font-bold text-center tracking-wider">
+                  {referralCode}
+                </div>
               </div>
               <p className="text-yellow-200 text-xs mt-3 text-center">Share this code with friends to earn rewards!</p>
             </div>
@@ -1688,6 +1718,56 @@ const AshPay = () => {
                 </svg>
                 Telegram Support
               </button>
+
+              <div className="mt-4 pt-4 border-t border-white/20">
+                <p className="text-gray-300 text-sm mb-3">Upload files or screenshots</p>
+                <label className={`inline-flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-semibold rounded-lg cursor-pointer active:scale-95 transition-all ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      Upload Files
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*,video/*,.pdf,.doc,.docx"
+                    multiple
+                    onChange={handleFileUpload}
+                    disabled={isUploading}
+                    className="hidden"
+                  />
+                </label>
+                <p className="text-gray-400 text-xs mt-2">Images, videos, PDFs & documents</p>
+                
+                {uploadedFiles.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-white text-sm font-semibold">Uploaded Files:</p>
+                    {uploadedFiles.map((file, index) => (
+                      <div key={index} className="bg-white/10 p-2 rounded-lg flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white text-xs font-medium truncate">{file.name}</p>
+                          <p className="text-gray-400 text-xs">{(file.size / 1024).toFixed(1)} KB</p>
+                        </div>
+                        <a
+                          href={file.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-2 px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
+                        >
+                          View
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
