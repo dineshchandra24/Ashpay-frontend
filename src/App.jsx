@@ -169,10 +169,7 @@ const AshPay = () => {
         return;
       }
       
-      if (currentUser && !showAuth && activeTab === 'wallet') {
-        if (window.confirm('Do you want to exit the app?')) {
-          window.close();
-        }
+      if (activeTab === 'wallet') {
         window.history.pushState(null, '', window.location.href);
         return;
       }
@@ -280,7 +277,6 @@ const AshPay = () => {
     setFormErrors({ mobile: mobileError, password: passwordError });
     
     if (mobileError || passwordError || !formData.name) {
-      if (!formData.name) alert('Please enter your name');
       return;
     }
     
@@ -305,8 +301,6 @@ const AshPay = () => {
       if (!response.ok) {
         if (data.error === 'Mobile number already registered') {
           setFormErrors({ ...formErrors, mobile: 'Mobile number already registered' });
-        } else {
-          alert(data.error || 'Registration failed');
         }
         setIsRegistering(false);
         return;
@@ -323,11 +317,6 @@ const AshPay = () => {
       
     } catch (error) {
       console.error('Registration error:', error);
-      if (error.message.includes('Failed to fetch')) {
-        alert('Server is waking up, please wait 30 seconds and try again');
-      } else {
-        alert('Registration failed: ' + error.message);
-      }
       setIsRegistering(false);
     }
   };
@@ -365,8 +354,6 @@ const AshPay = () => {
           setFormErrors({ ...formErrors, password: 'Incorrect password' });
         } else if (data.error === 'User not found') {
           setFormErrors({ ...formErrors, mobile: 'Mobile number not registered' });
-        } else {
-          alert(data.error || 'Login failed');
         }
         setIsLoggingIn(false);
         return;
@@ -383,11 +370,6 @@ const AshPay = () => {
       
     } catch (error) {
       console.error('Login error:', error);
-      if (error.message.includes('Failed to fetch')) {
-        alert('Server is waking up, please wait 30 seconds and try again');
-      } else {
-        alert('Login failed: ' + error.message);
-      }
       setIsLoggingIn(false);
     }
   };
@@ -437,7 +419,6 @@ const AshPay = () => {
         setCurrentUser(updatedUser);
         setPasswordChange({ current: '', new: '', confirm: '' });
         setShowProfile(false);
-        alert('Password changed successfully!');
       } else {
         setPasswordError(data.error || 'Failed to change password');
       }
@@ -449,12 +430,10 @@ const AshPay = () => {
 
   const handleDeposit = async () => {
     if (!depositAmount || depositAmount <= 0) {
-      alert('Please enter a valid amount');
       return;
     }
 
     if (parseFloat(depositAmount) < 50) {
-      alert('Minimum deposit amount is 50 USDT');
       return;
     }
 
@@ -496,7 +475,6 @@ const AshPay = () => {
     } catch (error) {
       console.error('Error saving deposit:', error);
       setIsConfirmingDeposit(false);
-      alert('Failed to submit deposit request. Please try again.');
     }
   };
 
@@ -563,7 +541,6 @@ const AshPay = () => {
     const savedPaymentDetails = currentUser.paymentDetails || [];
     
     if (savedPaymentDetails.length >= 6) {
-      alert('Maximum 6 payment methods allowed');
       return;
     }
     
@@ -635,11 +612,6 @@ const AshPay = () => {
       } catch (error) {
         console.error('Error saving payment details:', error);
         setIsSavingPayment(false);
-        if (error.message.includes('Failed to fetch')) {
-          alert('❌ Server is starting up. Please wait 30 seconds and try again.');
-        } else {
-          alert('❌ Failed to save payment details: ' + error.message);
-        }
       }
     } else {
       if (!validateUPI()) {
@@ -707,11 +679,6 @@ const AshPay = () => {
       } catch (error) {
         console.error('Error saving payment details:', error);
         setIsSavingPayment(false);
-        if (error.message.includes('Failed to fetch')) {
-          alert('❌ Server is starting up. Please wait 30 seconds and try again.');
-        } else {
-          alert('❌ Failed to save payment details: ' + error.message);
-        }
       }
     }
   };
@@ -746,12 +713,9 @@ const AshPay = () => {
         setPaymentToDelete(null);
         
         console.log('Payment method deleted, updated user:', updatedUser);
-      } else {
-        alert('❌ Failed to delete: ' + (data.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error deleting payment method:', error);
-      alert('❌ Failed to delete payment method. Please check your connection.');
     }
   };
 
@@ -901,11 +865,9 @@ const AshPay = () => {
       const uploadResults = await Promise.all(uploadPromises);
       setUploadedFiles([...uploadedFiles, ...uploadResults]);
       setIsUploading(false);
-      alert(`✅ ${files.length} file(s) uploaded successfully!`);
     } catch (error) {
       console.error('Upload error:', error);
       setIsUploading(false);
-      alert('❌ Failed to upload files. Please try again.');
     }
   };
 
