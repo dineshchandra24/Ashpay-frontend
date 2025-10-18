@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, History, LogOut, ArrowDownCircle, Copy, Check, Clock, CreditCard, TrendingUp, Zap, Shield, User, X, MessageCircle, Loader2 } from 'lucide-react';
+import { Wallet, History, LogOut, ArrowDownCircle, Copy, Check, Clock, CreditCard, TrendingUp, Zap, User, X, MessageCircle, Loader2 } from 'lucide-react';
 
 const AshPay = () => {
+  const calculateINR = (usdtAmount) => {
+    const rate = 96;
+    const commission = 0.04;
+    return usdtAmount * rate * (1 + commission);
+  };
+
   const [currentUser, setCurrentUser] = useState(null);
   const [showAuth, setShowAuth] = useState(true);
   const [isLogin, setIsLogin] = useState(true);
@@ -13,14 +19,12 @@ const AshPay = () => {
   const [selectedNetwork, setSelectedNetwork] = useState('BSC');
   const [copied, setCopied] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [showThankYou, setShowThankYou] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [pendingDeposits, setPendingDeposits] = useState([]);
   const [liveActivities, setLiveActivities] = useState([]);
   const [bankDetails, setBankDetails] = useState({ accountName: '', accountNumber: '', ifsc: '', bankName: '' });
   const [upiId, setUpiId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('bank');
-  const [showToolsThankYou, setShowToolsThankYou] = useState(false);
   const [paymentErrors, setPaymentErrors] = useState({ accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' });
   const [showProfile, setShowProfile] = useState(false);
   const [passwordChange, setPasswordChange] = useState({ current: '', new: '', confirm: '' });
@@ -28,7 +32,6 @@ const AshPay = () => {
   const [showTeam, setShowTeam] = useState(false);
   const [referralCode, setReferralCode] = useState('');
   const [copiedReferral, setCopiedReferral] = useState(false);
-  const [showWallet, setShowWallet] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
   const [activeTab, setActiveTab] = useState('wallet');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -41,6 +44,9 @@ const AshPay = () => {
   const [tawkLoaded, setTawkLoaded] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState([]);
+  const paymentMethodsRef = React.useRef(null);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [isConfirmingDeposit, setIsConfirmingDeposit] = useState(false);
 
   const walletAddresses = {
     BSC: '0xc78d59e82feaf166b469a5e62d82114c1e1d3727',
@@ -53,11 +59,14 @@ const AshPay = () => {
     if (savedUser) {
       try {
         const user = JSON.parse(savedUser);
+        console.log('Restored user from localStorage:', user);
+        console.log('Payment details on restore:', user.paymentDetails);
         setCurrentUser(user);
         setShowAuth(false);
         console.log('User session restored');
         
-        // Fetch pending deposits from server
+        // Fetch latest user data from backend to sync payment methods
+        fetchUserData(user.id);
         fetchPendingDeposits(user.id);
       } catch (error) {
         console.error('Error restoring session:', error);
@@ -65,6 +74,39 @@ const AshPay = () => {
       }
     }
   }, []);
+
+  const fetchUserData = async (userId) => {
+    try {
+      const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${userId}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Fetched user data from backend:', data.user);
+        console.log('Payment details from backend:', data.user.paymentDetails);
+        
+        // Only update if we have valid data and payment details exist
+        if (data.user && data.user.paymentDetails) {
+          setCurrentUser(prevUser => ({
+            ...prevUser,
+            ...data.user,
+            paymentDetails: data.user.paymentDetails
+          }));
+          localStorage.setItem('ashpay_user', JSON.stringify(data.user));
+          console.log('User data synced from backend with payment details');
+        } else {
+          // If no payment details from backend, just update other fields
+          console.log('No payment details from backend, keeping existing ones');
+          setCurrentUser(prevUser => ({
+            ...prevUser,
+            balance: data.user?.balance || prevUser.balance,
+            transactions: data.user?.transactions || prevUser.transactions
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    }
+  };
 
   const fetchPendingDeposits = async (userId) => {
     try {
@@ -122,7 +164,6 @@ const AshPay = () => {
         setShowTools(false);
         setShowProfile(false);
         setShowTeam(false);
-        setShowWallet(true);
         setActiveTab('wallet');
         window.history.pushState(null, '', window.location.href);
         return;
@@ -143,17 +184,7 @@ const AshPay = () => {
     return () => {
       window.removeEventListener('popstate', handleBackButton);
     };
-  }, [showDeposit, showHistory, showTools, showProfile, showTeam, showWallet, showSupport, showThankYou, showToolsThankYou, showLogoutConfirm, showDeletePaymentConfirm, currentUser, showAuth, activeTab]);
-
-  const generateCustomerId = () => {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-  };
-
-  const calculateINR = (usdtAmount) => {
-    const rate = 96;
-    const commission = 0.04;
-    return usdtAmount * rate * (1 + commission);
-  };
+  }, [showDeposit, showHistory, showTools, showProfile, showTeam, showSupport, showLogoutConfirm, showDeletePaymentConfirm, currentUser, showAuth, activeTab]);
 
   useEffect(() => {
     if (currentUser) {
@@ -161,10 +192,10 @@ const AshPay = () => {
     }
   }, [currentUser]);
 
-  // Load Tawk.to chat with file upload enabled
-  useEffect(() => {
-    if (!tawkLoaded) {
-      var Tawk_API = Tawk_API || {};
+  const openTawkChat = () => {
+    if (!window.Tawk_API) {
+      // Load Tawk script on demand
+      var Tawk_API = window.Tawk_API || {};
       var Tawk_LoadStart = new Date();
       
       (function(){
@@ -175,26 +206,25 @@ const AshPay = () => {
         s1.charset = 'UTF-8';
         s1.setAttribute('crossorigin','*');
         
-        // Enable file uploads and configure for mobile
         s1.onload = function() {
           if (window.Tawk_API) {
             window.Tawk_API.onLoad = function() {
               console.log('Tawk.to chat loaded');
-              // Set visitor info to help with support
               window.Tawk_API.setAttributes({
                 'name': currentUser?.name || 'Guest',
                 'userId': currentUser?.id || 'N/A'
               });
+              window.Tawk_API.showWidget();
             };
           }
         };
         
         s0.parentNode.insertBefore(s1, s0);
       })();
-      
-      setTawkLoaded(true);
+    } else {
+      window.Tawk_API.showWidget();
     }
-  }, [tawkLoaded, currentUser]);
+  };
 
   useEffect(() => {
     const generateActivity = () => {
@@ -282,7 +312,9 @@ const AshPay = () => {
         return;
       }
 
-      setCurrentUser(data.user);
+      const user = data.user;
+      setCurrentUser(user);
+      localStorage.setItem('ashpay_user', JSON.stringify(user));
       setPendingDeposits([]);
       setShowAuth(false);
       setFormData({ mobile: '', password: '', name: '', referralCode: '' });
@@ -340,7 +372,9 @@ const AshPay = () => {
         return;
       }
 
-      setCurrentUser(data.user);
+      const user = data.user;
+      setCurrentUser(user);
+      localStorage.setItem('ashpay_user', JSON.stringify(user));
       setPendingDeposits([]);
       setShowAuth(false);
       setFormData({ mobile: '', password: '', name: '', referralCode: '' });
@@ -424,6 +458,8 @@ const AshPay = () => {
       return;
     }
 
+    setIsConfirmingDeposit(true);
+
     const inrAmount = calculateINR(parseFloat(depositAmount));
 
     const pendingDeposit = {
@@ -437,7 +473,6 @@ const AshPay = () => {
     };
 
     try {
-      // Save pending deposit to database
       const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}/pending-deposit`, {
         method: 'POST',
         headers: {
@@ -452,14 +487,15 @@ const AshPay = () => {
 
       const data = await response.json();
       
-      // Update local state with server response
       setCurrentUser(data.user);
       setPendingDeposits(data.user.pendingDeposits || []);
       setDepositAmount('');
+      setIsConfirmingDeposit(false);
       setShowDeposit(false);
       
     } catch (error) {
       console.error('Error saving deposit:', error);
+      setIsConfirmingDeposit(false);
       alert('Failed to submit deposit request. Please try again.');
     }
   };
@@ -539,7 +575,8 @@ const AshPay = () => {
         return;
       }
       const details = { id: Date.now(), type: 'bank', ...bankDetails };
-      const updatedDetails = [...savedPaymentDetails, details];
+      // Add new payment method at the beginning (top) of the array
+      const updatedDetails = [details, ...savedPaymentDetails];
       
       try {
         const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}`, {
@@ -560,13 +597,40 @@ const AshPay = () => {
 
         const data = JSON.parse(responseText);
         
-        setCurrentUser(data.user);
-        const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
+        console.log('Backend response:', data);
+        console.log('User data from backend:', data.user);
+        console.log('Payment details:', data.user?.paymentDetails);
+        
+        // Update state with new user data - make sure to preserve all fields
+        const updatedUser = {
+          ...currentUser,
+          ...data.user,
+          paymentDetails: data.user.paymentDetails || []
+        };
+        
+        console.log('Updated user object:', updatedUser);
+        
+        setCurrentUser(updatedUser);
+        localStorage.setItem('ashpay_user', JSON.stringify(updatedUser));
+        
+        const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
         setUsers(updatedUsers);
+        
+        // Clear form
         setBankDetails({ accountName: '', accountNumber: '', ifsc: '', bankName: '' });
         setPaymentErrors({ accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' });
         setIsSavingPayment(false);
-        setShowToolsThankYou(true);
+        
+        // Show success message
+        setShowSuccessMessage(true);
+        setTimeout(() => setShowSuccessMessage(false), 3000);
+        
+        // Scroll to saved payment methods section
+        setTimeout(() => {
+          if (paymentMethodsRef.current) {
+            paymentMethodsRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        }, 100);
         
       } catch (error) {
         console.error('Error saving payment details:', error);
@@ -583,7 +647,8 @@ const AshPay = () => {
         return;
       }
       const details = { id: Date.now(), type: 'upi', upiId };
-      const updatedDetails = [...savedPaymentDetails, details];
+      // Add new payment method at the beginning (top) of the array
+      const updatedDetails = [details, ...savedPaymentDetails];
       
       try {
         const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}`, {
@@ -604,13 +669,40 @@ const AshPay = () => {
 
         const data = JSON.parse(responseText);
         
-        setCurrentUser(data.user);
-        const updatedUsers = users.map(u => u.id === currentUser.id ? data.user : u);
+        console.log('Backend response:', data);
+        console.log('User data from backend:', data.user);
+        console.log('Payment details:', data.user?.paymentDetails);
+        
+        // Update state with new user data - make sure to preserve all fields
+        const updatedUser = {
+          ...currentUser,
+          ...data.user,
+          paymentDetails: data.user.paymentDetails || []
+        };
+        
+        console.log('Updated user object:', updatedUser);
+        
+        setCurrentUser(updatedUser);
+        localStorage.setItem('ashpay_user', JSON.stringify(updatedUser));
+        
+        const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
         setUsers(updatedUsers);
+        
+        // Clear form
         setUpiId('');
         setPaymentErrors({ accountName: '', accountNumber: '', ifsc: '', bankName: '', upiId: '' });
         setIsSavingPayment(false);
-        setShowToolsThankYou(true);
+        
+        // Show success message
+        setShowSuccessMessage(true);
+        setTimeout(() => setShowSuccessMessage(false), 3000);
+        
+        // Scroll to saved payment methods section
+        setTimeout(() => {
+          if (paymentMethodsRef.current) {
+            paymentMethodsRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        }, 100);
         
       } catch (error) {
         console.error('Error saving payment details:', error);
@@ -652,6 +744,8 @@ const AshPay = () => {
         setUsers(updatedUsers);
         setShowDeletePaymentConfirm(false);
         setPaymentToDelete(null);
+        
+        console.log('Payment method deleted, updated user:', updatedUser);
       } else {
         alert('❌ Failed to delete: ' + (data.error || 'Unknown error'));
       }
@@ -664,46 +758,6 @@ const AshPay = () => {
   const confirmDeletePayment = (id) => {
     setPaymentToDelete(id);
     setShowDeletePaymentConfirm(true);
-  };
-
-  const completePendingDeposit = async (depositId) => {
-    const deposit = pendingDeposits.find(d => d.id === depositId);
-    if (!deposit) return;
-
-    try {
-      const response = await fetch(`https://ashpay-backend.onrender.com/api/user/${currentUser.id}/pending-deposit/${depositId}/complete`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to complete deposit');
-      }
-
-      const data = await response.json();
-      
-      // Update user data from backend response
-      setCurrentUser({
-        ...currentUser,
-        balance: data.newBalance,
-        transactions: currentUser.transactions
-      });
-      
-      const updatedUsers = users.map(u => u.id === currentUser.id ? {
-        ...currentUser,
-        balance: data.newBalance
-      } : u);
-      setUsers(updatedUsers);
-      
-      // Remove from pending deposits immediately
-      setPendingDeposits(prev => prev.filter(d => d.id !== depositId));
-      
-    } catch (error) {
-      console.error('Error completing deposit:', error);
-      alert('Failed to complete deposit');
-    }
   };
 
   const fetchBalanceFromBackend = async (userId) => {
@@ -723,15 +777,33 @@ const AshPay = () => {
 
       const data = await response.json();
       
-      const updatedUser = {
-        ...currentUser,
-        balance: data.balance || currentUser.balance,
-        transactions: data.transactions || currentUser.transactions
-      };
+      // CRITICAL: Only update balance and transactions, preserve payment methods
+      setCurrentUser(prevUser => {
+        const updatedUser = {
+          ...prevUser,
+          balance: data.balance || prevUser.balance,
+          transactions: data.transactions || prevUser.transactions,
+          // Keep existing payment methods - don't overwrite
+          paymentDetails: prevUser.paymentDetails || []
+        };
+        
+        // Update localStorage with preserved payment methods
+        localStorage.setItem('ashpay_user', JSON.stringify(updatedUser));
+        return updatedUser;
+      });
 
-      const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
+      const updatedUsers = users.map(u => {
+        if (u.id === userId) {
+          return {
+            ...u,
+            balance: data.balance || u.balance,
+            transactions: data.transactions || u.transactions,
+            paymentDetails: u.paymentDetails || []
+          };
+        }
+        return u;
+      });
       setUsers(updatedUsers);
-      setCurrentUser(updatedUser);
 
       setIsRefreshing(false);
       return data;
@@ -745,12 +817,11 @@ const AshPay = () => {
   useEffect(() => {
     if (!currentUser) return;
 
-    fetchBalanceFromBackend(currentUser.id);
-
-    // Refresh more frequently to catch completed deposits
+    // Don't fetch balance immediately on mount - payment methods are already in state
+    // Only start the interval
     const interval = setInterval(() => {
       fetchBalanceFromBackend(currentUser.id);
-    }, 5000); // Check every 5 seconds
+    }, 30000); // Fetch every 30 seconds
 
     return () => clearInterval(interval);
   }, [currentUser?.id]);
@@ -779,7 +850,6 @@ const AshPay = () => {
     setShowTools(false);
     setShowProfile(false);
     setShowTeam(false);
-    setShowWallet(false);
     setShowSupport(false);
     setShowLogoutConfirm(false);
     setPendingDeposits([]);
@@ -792,7 +862,6 @@ const AshPay = () => {
   };
 
   const openTelegram = () => {
-    // Direct deep link for mobile apps
     window.location.href = 'https://t.me/Ashpay_Support';
   };
 
@@ -837,30 +906,6 @@ const AshPay = () => {
       console.error('Upload error:', error);
       setIsUploading(false);
       alert('❌ Failed to upload files. Please try again.');
-    }
-  };
-
-  const openTab = (tabName) => {
-    setShowWallet(false);
-    setShowTools(false);
-    setShowTeam(false);
-    setShowProfile(false);
-    setShowDeposit(false);
-    setShowHistory(false);
-    setShowSupport(false);
-    setShowThankYou(false);
-    setShowToolsThankYou(false);
-    
-    setActiveTab(tabName);
-    
-    if (tabName === 'wallet') {
-      setShowWallet(false);
-    } else if (tabName === 'payment') {
-      setShowTools(true);
-    } else if (tabName === 'team') {
-      setShowTeam(true);
-    } else if (tabName === 'profile') {
-      setShowProfile(true);
     }
   };
 
@@ -1139,28 +1184,48 @@ const AshPay = () => {
         <div className="px-2 py-2.5">
           <div className="flex justify-around">
             <button 
-              onClick={() => openTab('wallet')}
+              onClick={() => {
+                setShowTools(false);
+                setShowProfile(false);
+                setShowTeam(false);
+                setActiveTab('wallet');
+              }}
               className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'wallet' ? 'text-white' : 'text-gray-400'}`}
             >
               <Wallet className="w-6 h-6" />
               <span className="text-xs font-medium">Wallet</span>
             </button>
             <button
-              onClick={() => openTab('payment')}
+              onClick={() => {
+                setShowProfile(false);
+                setShowTeam(false);
+                setShowTools(true);
+                setActiveTab('payment');
+              }}
               className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'payment' ? 'text-white' : 'text-gray-400'}`}
             >
               <CreditCard className="w-6 h-6" />
               <span className="text-xs font-medium">Payment</span>
             </button>
             <button
-              onClick={() => openTab('team')}
+              onClick={() => {
+                setShowTools(false);
+                setShowProfile(false);
+                setShowTeam(true);
+                setActiveTab('team');
+              }}
               className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'team' ? 'text-white' : 'text-gray-400'}`}
             >
               <TrendingUp className="w-6 h-6" />
               <span className="text-xs font-medium">Team</span>
             </button>
             <button
-              onClick={() => openTab('profile')}
+              onClick={() => {
+                setShowTools(false);
+                setShowTeam(false);
+                setShowProfile(true);
+                setActiveTab('profile');
+              }}
               className={`flex flex-col items-center gap-0.5 min-w-[60px] py-1 active:scale-95 transition-transform ${activeTab === 'profile' ? 'text-white' : 'text-gray-400'}`}
             >
               <User className="w-6 h-6" />
@@ -1222,22 +1287,29 @@ const AshPay = () => {
             <div className="flex gap-2">
               <button
                 onClick={() => setShowDeposit(false)}
-                className="flex-1 bg-white/10 text-white py-2.5 rounded-xl text-sm font-semibold"
+                disabled={isConfirmingDeposit}
+                className="flex-1 bg-white/10 text-white py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDeposit}
-                className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white py-2.5 rounded-xl text-sm font-semibold"
+                disabled={isConfirmingDeposit}
+                className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Confirm
+                {isConfirmingDeposit ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Confirm'
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
-
-
 
       {showHistory && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
@@ -1251,52 +1323,199 @@ const AshPay = () => {
             
             <h2 className="text-xl font-bold text-white mb-4">Transaction History</h2>
             
-            {pendingDeposits.length > 0 && (
-              <div className="mb-4">
-                <h3 className="text-base font-semibold text-yellow-400 mb-3 flex items-center gap-2">
-                  <Clock className="w-4 h-4" />
-                  Pending Deposits
-                </h3>
-                <div className="space-y-2">
-                  {pendingDeposits.map(tx => (
-                    <div key={tx.id} className="bg-yellow-500/10 border border-yellow-500/30 p-3 rounded-xl">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <div className="text-white font-semibold text-sm">{tx.usdtAmount} USDT</div>
-                          <div className="text-gray-300 text-xs">{tx.network}</div>
-                          <div className="text-yellow-400 text-xs mt-1 font-medium">Processing...</div>
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setActiveTab('deposits')}
+                className={`flex-1 py-2.5 rounded-xl font-semibold transition-all text-sm ${
+                  activeTab === 'deposits' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' : 'bg-white/10 text-gray-300'
+                }`}
+              >
+                Deposits
+              </button>
+              <button
+                onClick={() => setActiveTab('withdrawals')}
+                className={`flex-1 py-2.5 rounded-xl font-semibold transition-all text-sm ${
+                  activeTab === 'withdrawals' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' : 'bg-white/10 text-gray-300'
+                }`}
+              >
+                Withdrawals
+              </button>
+              <button
+                onClick={() => setActiveTab('other')}
+                className={`flex-1 py-2.5 rounded-xl font-semibold transition-all text-sm ${
+                  activeTab === 'other' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' : 'bg-white/10 text-gray-300'
+                }`}
+              >
+                Other
+              </button>
+            </div>
+
+            {activeTab === 'deposits' && (
+              <div>
+                {pendingDeposits.length > 0 && (
+                  <div className="mb-4">
+                    <h3 className="text-base font-semibold text-yellow-400 mb-3 flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      Pending Deposits
+                    </h3>
+                    <div className="space-y-2">
+                      {pendingDeposits.map(tx => (
+                        <div key={tx.id} className="bg-yellow-500/10 border border-yellow-500/30 p-3 rounded-xl">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <div className="text-white font-semibold text-sm">{tx.usdtAmount} USDT</div>
+                              <div className="text-gray-300 text-xs">{tx.network}</div>
+                              <div className="text-yellow-400 text-xs mt-1 font-medium">Processing...</div>
+                            </div>
+                            <div className="text-yellow-400 font-semibold text-sm">₹{tx.inrAmount.toFixed(2)}</div>
+                          </div>
                         </div>
-                        <div className="text-yellow-400 font-semibold text-sm">₹{tx.inrAmount.toFixed(2)}</div>
+                      ))}
+                    </div>
+                    <div className="mt-2 bg-white/10 p-2.5 rounded-lg">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-300 font-semibold text-sm">Total Pending:</span>
+                        <span className="text-yellow-400 font-bold text-base">₹{calculatePendingBalance().toFixed(2)}</span>
                       </div>
                     </div>
-                  ))}
-                </div>
-                <div className="mt-2 bg-white/10 p-2.5 rounded-lg">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-300 font-semibold text-sm">Total Pending Balance:</span>
-                    <span className="text-yellow-400 font-bold text-base">₹{calculatePendingBalance().toFixed(2)}</span>
                   </div>
-                </div>
+                )}
+
+                <h3 className="text-base font-semibold text-white mb-3">Completed Deposits</h3>
+                {currentUser.transactions && currentUser.transactions.filter(tx => tx.type === 'deposit').length > 0 ? (
+                  <div className="space-y-2">
+                    {currentUser.transactions.filter(tx => tx.type === 'deposit').map(tx => (
+                      <div key={tx.id} className="bg-white/10 p-3 rounded-xl">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="text-white font-semibold text-sm">{tx.usdtAmount} USDT</div>
+                            <div className="text-gray-300 text-xs">{new Date(tx.date).toLocaleString()}</div>
+                          </div>
+                          <div className="text-green-400 font-semibold text-sm">+₹{tx.inrAmount.toFixed(2)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-300 text-center py-6 text-sm">No deposit transactions yet</p>
+                )}
               </div>
             )}
 
-            <h3 className="text-base font-semibold text-white mb-3">Completed Transactions</h3>
-            {currentUser.transactions && currentUser.transactions.length > 0 ? (
-              <div className="space-y-2">
-                {currentUser.transactions.map(tx => (
-                  <div key={tx.id} className="bg-white/10 p-3 rounded-xl">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <div className="text-white font-semibold text-sm">{tx.usdtAmount} USDT</div>
-                        <div className="text-gray-300 text-xs">{new Date(tx.date).toLocaleString()}</div>
+            {activeTab === 'withdrawals' && (
+              <div>
+                <h3 className="text-base font-semibold text-white mb-3">Withdrawal Requests</h3>
+                {currentUser.transactions && currentUser.transactions.filter(tx => tx.type === 'withdrawal').length > 0 ? (
+                  <div className="space-y-2">
+                    {currentUser.transactions.filter(tx => tx.type === 'withdrawal').map(tx => (
+                      <div key={tx.id} className="bg-white/10 p-3 rounded-xl">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className="text-white font-semibold text-sm">{tx.method === 'bank' ? 'Bank Transfer' : 'UPI'}</div>
+                              {tx.status === 'completed' && <span className="text-base">✅</span>}
+                              {tx.status === 'failed' && <span className="text-base">❌</span>}
+                            </div>
+                            <div className="text-gray-300 text-xs mb-1">{new Date(tx.date).toLocaleString()}</div>
+                            <div className={`text-xs font-medium mb-1 ${tx.status === 'completed' ? 'text-green-400' : tx.status === 'pending' ? 'text-yellow-400' : 'text-red-400'}`}>
+                              {tx.status.charAt(0).toUpperCase() + tx.status.slice(1)}
+                            </div>
+                            {tx.status === 'completed' && tx.paymentMethod && (
+                              <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-2 mt-2">
+                                <div className="text-green-400 text-xs font-semibold mb-1">Paid via: {tx.paymentMethod.type === 'bank' ? 'Bank Transfer' : 'UPI'}</div>
+                                {tx.paymentMethod.type === 'bank' ? (
+                                  <div className="text-green-300 text-xs space-y-0.5">
+                                    <div>A/C: {tx.paymentMethod.accountNumber}</div>
+                                    <div>IFSC: {tx.paymentMethod.ifsc}</div>
+                                  </div>
+                                ) : (
+                                  <div className="text-green-300 text-xs">{tx.paymentMethod.upiId}</div>
+                                )}
+                              </div>
+                            )}
+                            {tx.status === 'failed' && tx.remark && (
+                              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-2 mt-2">
+                                <div className="text-red-400 text-xs font-semibold mb-1">Remark:</div>
+                                <div className="text-red-300 text-xs">{tx.remark}</div>
+                              </div>
+                            )}
+                            {tx.status === 'failed' && tx.refundAmount && (
+                              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-2 mt-2">
+                                <div className="text-blue-400 text-xs font-semibold">Refunded: ₹{tx.refundAmount.toFixed(2)}</div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-right ml-2">
+                            <div className={`font-semibold text-sm ${tx.status === 'failed' ? 'line-through text-gray-500' : 'text-red-400'}`}>
+                              -₹{tx.amount.toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-green-400 font-semibold text-sm">₹{tx.inrAmount.toFixed(2)}</div>
-                    </div>
+                    ))}
                   </div>
-                ))}
+                ) : (
+                  <p className="text-gray-300 text-center py-6 text-sm">No withdrawal transactions yet</p>
+                )}
               </div>
-            ) : (
-              <p className="text-gray-300 text-center py-6 text-sm">No completed transactions yet</p>
+            )}
+
+            {activeTab === 'other' && (
+              <div>
+                <h3 className="text-base font-semibold text-white mb-3">Bonus & Other Credits</h3>
+                {currentUser.transactions && currentUser.transactions.filter(tx => tx.type === 'bonus' || tx.type === 'gift' || tx.type === 'reward' || tx.type === 'refund' || tx.type === 'compensation').length > 0 ? (
+                  <div className="space-y-2">
+                    {currentUser.transactions.filter(tx => tx.type === 'bonus' || tx.type === 'gift' || tx.type === 'reward' || tx.type === 'refund' || tx.type === 'compensation').map(tx => {
+                      let icon, color, label;
+                      if (tx.type === 'bonus') {
+                        icon = '🎁';
+                        color = 'text-purple-400';
+                        label = 'Bonus';
+                      } else if (tx.type === 'gift') {
+                        icon = '🎀';
+                        color = 'text-pink-400';
+                        label = 'Gift';
+                      } else if (tx.type === 'reward') {
+                        icon = '⭐';
+                        color = 'text-yellow-400';
+                        label = 'Reward';
+                      } else if (tx.type === 'refund') {
+                        icon = '💰';
+                        color = 'text-green-400';
+                        label = 'Refund';
+                      } else if (tx.type === 'compensation') {
+                        icon = '🤝';
+                        color = 'text-blue-400';
+                        label = 'Compensation';
+                      }
+                      
+                      return (
+                        <div key={tx.id} className="bg-white/10 p-3 rounded-xl">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-start gap-2 flex-1">
+                              <span className="text-xl flex-shrink-0">{icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-white font-semibold text-sm">{label}</div>
+                                <div className="text-gray-300 text-xs">{tx.description || 'Credit'}</div>
+                                <div className="text-gray-400 text-xs mt-1">{new Date(tx.date).toLocaleString()}</div>
+                                {tx.remark && (
+                                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-2 mt-2">
+                                    <div className="text-blue-400 text-xs font-semibold mb-1">Admin Note:</div>
+                                    <div className="text-blue-300 text-xs">{tx.remark}</div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className={`${color} font-semibold text-sm ml-2 flex-shrink-0`}>+₹{tx.amount.toFixed(2)}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-gray-300 text-center py-6 text-sm">No bonus or gift transactions yet</p>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -1553,40 +1772,85 @@ const AshPay = () => {
               )}
             </button>
 
-            <h3 className="text-base font-semibold text-white mb-3">Saved Payment Methods</h3>
+            {showSuccessMessage && (
+              <div className="mb-4 bg-green-500/20 border border-green-500/50 rounded-xl p-3 flex items-center gap-2 animate-pulse">
+                <Check className="w-5 h-5 text-green-400" />
+                <span className="text-green-400 font-semibold text-sm">✅ Payment method saved successfully!</span>
+              </div>
+            )}
+
+            <h3 className="text-base font-semibold text-white mb-3">Saved Payment Methods ({currentUser.paymentDetails?.length || 0}/6)</h3>
+            <div ref={paymentMethodsRef}>
             {currentUser.paymentDetails && currentUser.paymentDetails.length > 0 ? (
-              <div className="space-y-2">
-                {currentUser.paymentDetails.map((detail) => (
-                  <div key={detail.id} className="bg-white/10 p-3 rounded-xl">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+                {currentUser.paymentDetails.map((detail) => {
+                  console.log('Rendering payment detail:', detail);
+                  return (
+                  <div key={detail.id} className="bg-white/10 p-4 rounded-xl border border-white/20 hover:bg-white/15 transition-colors">
+                    <div className="flex justify-between items-start gap-3">
+                      <div className="flex-1 min-w-0">
                         {detail.type === 'bank' ? (
                           <>
-                            <div className="text-white font-semibold text-sm">{detail.accountName}</div>
-                            <div className="text-gray-300 text-xs">{detail.bankName}</div>
-                            <div className="text-gray-300 text-xs">A/C: {detail.accountNumber}</div>
-                            <div className="text-gray-300 text-xs">IFSC: {detail.ifsc}</div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="bg-blue-500/20 p-1.5 rounded-lg">
+                                <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                                </svg>
+                              </div>
+                              <span className="text-blue-400 text-xs font-semibold">BANK ACCOUNT</span>
+                            </div>
+                            <div className="text-white font-bold text-base mb-1 truncate">{detail.accountName}</div>
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-400 text-xs">Bank:</span>
+                                <span className="text-gray-300 text-xs font-medium">{detail.bankName}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-400 text-xs">A/C:</span>
+                                <span className="text-gray-300 text-xs font-mono">{detail.accountNumber}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-400 text-xs">IFSC:</span>
+                                <span className="text-gray-300 text-xs font-mono">{detail.ifsc}</span>
+                              </div>
+                            </div>
                           </>
                         ) : (
                           <>
-                            <div className="text-white font-semibold text-sm">UPI</div>
-                            <div className="text-gray-300 text-xs">{detail.upiId}</div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="bg-purple-500/20 p-1.5 rounded-lg">
+                                <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                                </svg>
+                              </div>
+                              <span className="text-purple-400 text-xs font-semibold">UPI ID</span>
+                            </div>
+                            <div className="text-white font-bold text-base truncate">{detail.upiId}</div>
+                            <div className="text-gray-400 text-xs mt-1">Instant Payment</div>
                           </>
                         )}
                       </div>
                       <button
                         onClick={() => confirmDeletePayment(detail.id)}
-                        className="p-2 bg-red-500/20 rounded-lg hover:bg-red-500/30 transition-colors"
+                        className="p-2 bg-red-500/20 rounded-lg hover:bg-red-500/30 transition-colors flex-shrink-0"
+                        title="Delete payment method"
                       >
                         <X className="w-4 h-4 text-red-400" />
                       </button>
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             ) : (
-              <p className="text-gray-300 text-center py-6 text-sm">No payment methods saved yet</p>
+              <div className="text-center py-8">
+                <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <CreditCard className="w-8 h-8 text-gray-500" />
+                </div>
+                <p className="text-gray-300 text-sm">No payment methods saved yet</p>
+                <p className="text-gray-400 text-xs mt-1">Add one above to get started</p>
+              </div>
             )}
+            </div>
           </div>
         </div>
       )}
@@ -1663,10 +1927,7 @@ const AshPay = () => {
               <button
                 onClick={() => {
                   setShowSupport(false);
-                  // Open Tawk chat
-                  if (window.Tawk_API && window.Tawk_API.maximize) {
-                    window.Tawk_API.maximize();
-                  }
+                  openTawkChat();
                 }}
                 className="inline-flex items-center justify-center gap-3 w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-4 rounded-xl font-semibold hover:shadow-lg transition-shadow"
               >
